@@ -316,3 +316,92 @@ export class Engine {
     ctx.restore();
   }
 }
+
+/* ======================================================================
+   NÚCLEO COMPARTIDO DEL JUEGO PRINCIPAL (index.html)
+   ----------------------------------------------------------------------
+   FixedTimestep   Bucle a 60 FPS: la simulación avanza en pasos fijos de 1/60 s (acumulador)
+                   y se dibuja una vez por frame del navegador. Así la física de los fragmentos,
+                   el balanceo de la vegetación y los personajes llevan siempre el mismo ritmo,
+                   aunque el monitor sea de 144 Hz o haya un tirón.
+   YSortLayer      Capa de ordenación por profundidad: personajes, árboles, casas, rocas y
+                   fragmentos de destrucción entran en la misma lista y se pintan por su base
+                   (y), de modo que nada se solapa mal.
+   AtmosphereTint  Filtro gótico del clima del mapa: cuando Abel se acerca a un jefe (Rufus,
+                   Shela o el Gólem) el entorno se enfría y se tiñe de carmesí, se desatura y
+                   el borde de la pantalla late; el HUD y el minimapa reciben el aviso.
+   ====================================================================== */
+
+export class FixedTimestep {
+  /**
+   * @param {{update:(dt:number,t:number)=>void, render:(t:number,alpha:number)=>void, step?:number, maxSteps?:number}} o
+   */
+  constructor({ update, render, step = 1 / 60, maxSteps = 5 }) {
+    this.update = update; this.render = render; this.step = step; this.maxSteps = maxSteps;
+    this.acc = 0; this.last = 0; this.time = 0; this.running = false; this.fps = 60; this.stepsThisFrame = 0;
+    this.frame = this.frame.bind(this);
+  }
+  start() { if (this.running) return; this.running = true; requestAnimationFrame(this.frame); }
+  stop() { this.running = false; }
+  frame(ts) {
+    if (!this.running) return;
+    const dt = this.last ? Math.min(0.25, (ts - this.last) / 1000) : 0;
+    this.last = ts;
+    this.acc += dt;
+    let n = 0;
+    while (this.acc >= this.step && n < this.maxSteps) { this.time += this.step; this.update(this.step, this.time); this.acc -= this.step; n++; }
+    if (n === this.maxSteps) this.acc = 0;                 // no intentar recuperar tirones largos
+    this.stepsThisFrame = n;
+    if (dt > 0) this.fps += (1 / dt - this.fps) * 0.05;
+    this.render(this.time, this.acc / this.step);
+    requestAnimationFrame(this.frame);
+  }
+}
+
+export class YSortLayer {
+  constructor() { this.items = []; }
+  begin() { this.items.length = 0; }
+  add(by, type, ref) { this.items.push({ by, type, ref }); }
+  /** Ordena por profundidad (estable) y llama a draw(item) para cada elemento. */
+  flush(draw) {
+    const arr = this.items;
+    arr.forEach((it, i) => { it.i = i; });
+    arr.sort((a, b) => a.by - b.by || a.i - b.i);
+    for (const it of arr) draw(it);
+  }
+}
+
+export class AtmosphereTint {
+  constructor() { this.k = 0; this.target = 0; this.pulse = 0; this.onChange = null; this._on = false; }
+  setTarget(v) { this.target = Math.max(0, Math.min(1, v)); }
+  update(dt) {
+    this.k += (this.target - this.k) * Math.min(1, dt * 2.4);
+    this.pulse += dt;
+    const on = this.k > 0.3;
+    if (on !== this._on) { this._on = on; this.onChange?.(on, this.k); }
+  }
+  /** Dibuja sobre el lienzo ya compuesto (en píxeles de pantalla). */
+  draw(ctx, w, h) {
+    const k = this.k;
+    if (k < 0.02) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "saturation";             // desatura el entorno
+    ctx.globalAlpha = 0.45 * k;
+    ctx.fillStyle = "#808080";
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = "multiply";               // filtro carmesí-violeta gótico
+    ctx.globalAlpha = 0.5 * k;
+    ctx.fillStyle = "#b86a9a";
+    ctx.fillRect(0, 0, w, h);
+    ctx.globalCompositeOperation = "source-over";
+    const beat = 0.7 + 0.3 * Math.sin(this.pulse * 3.2);
+    const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.75);
+    g.addColorStop(0, "rgba(60,0,20,0)");
+    g.addColorStop(1, `rgba(90,0,30,${0.55 * k * beat})`);
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, w, h);
+    ctx.restore();
+  }
+}

@@ -9,29 +9,150 @@
  * luz desde arriba-izquierda, como el resto del juego.
  */
 
-/** Lobo pequeño mirando a la izquierda (flip = mirando a la derecha). */
-export function drawWolfSmall(c, x, y, t, pal, flip, running, hurt = false, armored = false) {
+/* ======================================================================
+   LOBOS (Karr, Sköll, brasas de Pyrus) — dibujo esquelético con muchas fases
+   ----------------------------------------------------------------------
+   Estados que entiende drawWolf():
+     idle      respira, mueve la cola y las orejas, a veces olfatea
+     trot      paseo de 4 patas en diagonal
+     run       galope: cuerpo que se estira y se encoge, cola recta
+     alert     se detiene con las orejas arriba al ver a Abel
+     windup    se agacha, gruñe y absorbe energía (carga elemental: oscuridad / hielo / fuego)
+     lunge     salta con el cuerpo estirado y la mandíbula abierta
+     recover   se sacude tras el mordisco
+     stunned   retroceso con destello blanco
+     dying     cae de costado y se desvanece
+   ====================================================================== */
+
+const wcv = document.createElement("canvas");
+wcv.width = 40; wcv.height = 30;
+const wx = wcv.getContext("2d");
+
+const hash = (n) => { const s = Math.sin(n * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+
+/**
+ * @param {CanvasRenderingContext2D} c
+ * @param {object} st { t, pal, flip, state, stateT, moving, run, hurt(0..1), charge(0..1), element, armored, seed, die(0..1) }
+ */
+export function drawWolf(c, x, y, st) {
+  const { t, pal, flip } = st;
+  const state = st.state || (st.moving ? (st.run ? "run" : "trot") : "idle");
+  const seed = st.seed || 0;
+  wx.clearRect(0, 0, 40, 30);
+  const P = (col, a, b, w, h) => { wx.fillStyle = col; wx.fillRect(a + 6, b + 8, w, h); };   // origen del lobo en (6, 8)
+
+  const running = state === "run" || state === "chase";
+  const gait = state === "run" ? 11 : state === "trot" ? 6 : 0;
+  const ph = t * gait + seed * 3;
+  const sw = Math.sin(ph), sw2 = Math.sin(ph + Math.PI);
+  let by = 0, stretch = 0, crouch = 0, headDy = 0, headDx = 0, jaw = 0, tailUp = 0, earBack = 0, bodyDx = 0;
+
+  if (state === "run") { by = Math.sin(ph * 2) > 0.3 ? -1 : 0; stretch = Math.sin(ph) > 0.4 ? 1 : 0; earBack = 1; tailUp = -1; headDy = 1; }
+  else if (state === "trot") { by = Math.sin(ph * 2) > 0.6 ? -1 : 0; }
+  else if (state === "alert") { headDy = -1; earBack = -1; tailUp = 1; }
+  else if (state === "windup") { crouch = 2; headDy = 2; headDx = -1; earBack = 1; tailUp = 1; jaw = 0; }
+  else if (state === "lunge") { stretch = 3; by = -2; headDx = -2; jaw = 2; earBack = 1; tailUp = -1; bodyDx = -1; }
+  else if (state === "recover") { by = 0; headDy = Math.sin(t * 30) > 0 ? 1 : 0; headDx = Math.sin(t * 30) > 0 ? 1 : -1; }
+  else if (state === "stunned") { by = 1; headDy = 1; earBack = 1; }
+  else {                                         // idle: respira y olfatea de vez en cuando
+    const sniff = hash(Math.floor(t / 2.4) + seed) < 0.35 && (t % 2.4) < 1.0;
+    if (sniff) headDy = 1 + (Math.sin(t * 14) > 0 ? 1 : 0);
+    by = Math.sin(t * 2.2 + seed) > 0.55 ? -1 : 0;
+  }
+  by += crouch;
+  const wag = Math.sin(t * (state === "idle" ? 2.6 : state === "windup" ? 18 : state === "run" ? 14 : 6) + seed);
+  const earFlick = hash(Math.floor(t * 1.7) + seed * 5) < 0.18 && (t * 1.7 % 1) < 0.25 ? 1 : 0;
+
+  // sombra ya la dibuja el juego; aquí solo el animal (mirando a la izquierda)
+  const dying = st.die > 0;
+  // cola: 3 segmentos que ondulan
+  const tx = 16 + stretch + bodyDx;
+  P(pal.shade, tx, 3 + by + tailUp + Math.round(wag * 0.9), 3, 2);
+  P(pal.mane, tx + 2, 2 + by + tailUp * 2 + Math.round(wag * 1.4), 2, 2);
+  if (state === "run") P(pal.mane, tx + 3, 2 + by + tailUp * 2 + Math.round(wag * 1.6), 1, 1);
+  // lomo
+  const bx0 = 6 + bodyDx, bw = 11 + stretch;
+  P(pal.shade, bx0, 5 + by, bw, 5); P(pal.body, bx0, 5 + by, bw, 4); P(pal.hi, bx0 + 1, 5 + by, Math.max(4, bw - 3), 1);
+  // pecho/vientre más claro
+  P(pal.shade, bx0 + 1, 9 + by, bw - 2, 1);
+  // crin (se eriza al cargar / correr)
+  const mane = Math.round((state === "windup" ? 1 : 0) + (running ? 0 : 0) + (st.charge || 0));
+  P(pal.mane, 8 + bodyDx, 3 + by - mane, 2, 2 + mane); P(pal.mane, 11 + bodyDx, 2 + by - mane, 2, 3 + mane); P(pal.mane, 14 + bodyDx, 3 + by - mane, 2, 2 + mane);
+  if (st.armored) { P(pal.mane, 9 + bodyDx, 5 + by, 1, 5); P(pal.mane, 13 + bodyDx, 5 + by, 1, 5); P("#c9a24a", 9 + bodyDx, 7 + by, 1, 1); }
+  // patas: 4 con dos segmentos
+  const legs = [[6, sw], [9, sw2], [13, sw2], [15, sw]];
+  legs.forEach(([lx, s], i) => {
+    const front = i < 2;
+    let dx = 0, lift = 0, len = 3;
+    if (gait) { dx = Math.round(s * (state === "run" ? 3 : 1.6)); lift = s > 0.2 ? (state === "run" ? 2 : 1) : 0; }
+    if (state === "windup") { len = front ? 2 : 3; dx = front ? -1 : 1; }
+    if (state === "lunge") { dx = front ? -2 : 2; len = 2; }
+    if (state === "alert") dx = front ? -1 : 0;
+    const xx = lx + dx + (front ? bodyDx : bodyDx + stretch * (i >= 2 ? 1 : 0));
+    const top = 10 + by + (crouch ? 0 : 0), h = Math.max(1, len - lift + (crouch ? 0 : 0));
+    P(front ? pal.shade : pal.body, xx, top, 2, Math.max(1, Math.min(h, 4 - crouch + (by < 0 ? 1 : 0))));
+    P(pal.claw, xx, top + Math.max(1, Math.min(h, 4 - crouch + (by < 0 ? 1 : 0))) - 1, 2, 1);
+  });
+  // cabeza y hocico
+  const hx = 1 + headDx + bodyDx, hy = 4 + by + headDy;
+  P(pal.body, hx, hy, 6, 5); P(pal.hi, hx + 1, hy, 3, 1); P(pal.body, hx - 1, hy + 2 + (jaw ? 0 : 0), 2, 2);
+  // orejas
+  const eo = earBack > 0 ? 1 : 0;
+  P(pal.shade, hx + 2 + earFlick, hy - 2 + eo - (earBack < 0 ? 1 : 0), 2, 2); P(pal.body, hx + 4, hy - 2 + eo - (earBack < 0 ? 1 : 0), 1, 2);
+  // ojo (brilla más al cargar)
+  P(pal.eye, hx + 1, hy + 1, 2, 1);
+  // boca: cerrada o abierta (mandíbula inferior baja)
+  if (jaw) { P("#1a0e14", hx - 1, hy + 4, 4, jaw); P("#f0e8ff", hx - 1, hy + 4, 1, 1); P("#f0e8ff", hx + 2, hy + 4, 1, 1); P(pal.shade, hx, hy + 4 + jaw, 4, 1); }
+  else { P("#f0e8ff", hx - 1, hy + 4, 1, 1); P("#1a0e14", hx, hy + 4, 3, 1); }
+
+  // los esbirros de Pyrus arden siempre: llamas pixeladas que bailan sobre el lomo
+  if ((st.element || "") === "fire" && !dying) {
+    for (let i = 0; i < 5; i++) {
+      const f = Math.sin(t * 12 + i * 1.9 + seed) * 0.5 + 0.5;
+      wx.globalAlpha = 0.55 + f * 0.4;
+      P(i % 2 ? "#ffc24a" : "#ff7a1e", 7 + i * 2 + bodyDx, 3 + by - Math.round(f * 3) - (state === "windup" ? 2 : 0), 1, 2 + Math.round(f * 2));
+    }
+    wx.globalAlpha = 1;
+  }
+  // carga de energía elemental (oscuridad / hielo / fuego)
+  const k = st.charge || 0;
+  if (k > 0) {
+    const el = st.element || "dark";
+    const n = Math.round(4 + k * 8);
+    for (let i = 0; i < n; i++) {
+      const a = hash(i * 7.3 + Math.floor(t * 9) + seed), b = hash(i * 3.1 + Math.floor(t * 9) * 1.7);
+      const col = el === "fire" ? (a < 0.4 ? "#ff7a1e" : a < 0.75 ? "#ffc24a" : "#fff1b8") : el === "ice" ? (a < 0.5 ? "#bfe8ff" : "#ffffff") : (a < 0.5 ? "#8a4dff" : "#3a1e6a");
+      wx.globalAlpha = 0.35 + 0.5 * k * b;
+      P(col, 4 + Math.floor(a * 14), 2 + by - Math.floor(b * 8 * k) + (el === "fire" ? -1 : 0), 1, 1 + (b > 0.8 ? 1 : 0));
+    }
+    wx.globalAlpha = 1;
+    P(el === "fire" ? "#ffc24a" : el === "ice" ? "#e8f8ff" : "#ff5a8a", hx + 1, hy + 1, 2, 1);
+  }
+
+  // destello blanco de impacto
+  if (st.hurt > 0) {
+    wx.globalCompositeOperation = "source-atop";
+    wx.globalAlpha = Math.min(1, st.hurt);
+    wx.fillStyle = "#ffffff";
+    wx.fillRect(0, 0, 40, 30);
+    wx.globalAlpha = 1;
+    wx.globalCompositeOperation = "source-over";
+  }
+
   c.save();
-  c.translate(flip ? x + 20 : x, y);
-  if (flip) c.scale(-1, 1);
-  const P = (col, a, b, w, h) => { c.fillStyle = col; c.fillRect(a, b, w, h); };
-  const k = running ? ((t * 10) | 0) % 2 : ((t * 2) | 0) % 2 === 0 ? 0 : 0;
-  const bob = running && k ? -1 : 0;
-  c.globalAlpha = 0.35; P("#000", 2, 13, 16, 2); c.globalAlpha = 1;
-  if (hurt) c.globalAlpha = 0.55 + 0.45 * Math.sin(t * 40);
-  const by = bob;
-  P(pal.shade, 16, 3 + by, 3, 2); P(pal.mane, 18, 2 + by, 2, 2);                        // cola
-  P(pal.shade, 6, 5 + by, 11, 5); P(pal.body, 6, 5 + by, 11, 4); P(pal.hi, 7, 5 + by, 8, 1); // lomo
-  P(pal.mane, 8, 3 + by, 2, 2); P(pal.mane, 11, 2 + by, 2, 3); P(pal.mane, 14, 3 + by, 2, 2); // crin
-  if (armored) { P(pal.mane, 9, 5 + by, 1, 5); P(pal.mane, 13, 5 + by, 1, 5); P("#c9a24a", 9, 7 + by, 1, 1); } // arnés de cuero
-  P(pal.body, 1, 4 + by, 6, 5); P(pal.hi, 2, 4 + by, 3, 1); P(pal.body, 0, 6 + by, 2, 2);   // cabeza y hocico
-  P(pal.shade, 3, 2 + by, 2, 2); P(pal.body, 5, 2 + by, 1, 2);                             // orejas
-  P(pal.eye, 2, 5 + by, 2, 1);                                                              // ojo
-  P("#f0e8ff", 0, 8 + by, 1, 1); P("#1a0e14", 1, 8 + by, 3, 1);                             // colmillo y boca
-  // Patas: alternan al correr
-  P(pal.shade, 6, 10, 2, 3 - k); P(pal.body, 9, 10, 2, 2 + k); P(pal.shade, 13, 10, 2, 2 + k); P(pal.body, 15, 10, 2, 3 - k);
-  P(pal.claw, 6, 12 - k, 2, 1); P(pal.claw, 15, 12 - k, 2, 1);
+  if (dying) c.globalAlpha *= Math.max(0, 1 - Math.max(0, st.die - 0.4) / 0.6);
+  if (flip) { c.translate(Math.round(x) + 20, Math.round(y)); c.scale(-1, 1); } else c.translate(Math.round(x), Math.round(y));
+  if (dying) {                                         // cae de costado
+    const kk = Math.min(1, st.die / 0.4);
+    c.translate(10, 14); c.rotate((Math.PI / 2) * kk * 0.9); c.translate(-10, -14);
+  }
+  c.drawImage(wcv, -6, -8);
   c.restore();
+}
+
+/** Compatibilidad con la firma antigua. */
+export function drawWolfSmall(c, x, y, t, pal, flip, running, hurt = false, armored = false) {
+  drawWolf(c, x, y, { t, pal, flip, moving: running, run: running, hurt: hurt ? 0.6 : 0, armored });
 }
 
 /* ---------- Hombres lobo ---------- */
@@ -88,8 +209,12 @@ function paletteFor(pal) {
 
 const cache = new Map();
 
-/** Hombre lobo pequeño (mapa). Respira 1 px y los ojos laten. */
-export function drawWerewolfSmall(c, x, y, t, kind, pal) {
+/**
+ * Hombre lobo pequeño (mapa), animado por partes: cabeza con retardo, torso que respira, brazos que
+ * se balancean y flexionan las garras, cambio de apoyo en las piernas y gruñido al acercarse Abel.
+ * @param {{near?:number, charge?:number, hurt?:number}} [st]
+ */
+export function drawWerewolfSmall(c, x, y, t, kind, pal, st = {}) {
   const key = `${kind}:small`;
   if (!cache.has(key)) {
     const rows = kind === "shela" ? shelaRows() : WEREWOLF_ROWS;
@@ -104,18 +229,43 @@ export function drawWerewolfSmall(c, x, y, t, kind, pal) {
     }));
     cache.set(key, cv);
   }
-  const breathe = Math.sin(t * 2.4) > 0.2 ? -1 : 0;
-  c.globalAlpha = 0.4; c.fillStyle = "#000"; c.fillRect(x + 3, y + 24, 14, 2); c.globalAlpha = 1;
   const img = cache.get(key);
-  c.drawImage(img, 0, 0, 20, 18, x, y + breathe, 20, 18);
-  if (breathe) c.drawImage(img, 0, 17, 20, 1, x, y + 17, 20, 1);
-  c.drawImage(img, 0, 18, 20, 8, x, y + 18, 20, 8);
-  // Ojos encendidos
-  c.globalAlpha = 0.65 + 0.35 * Math.sin(t * 5);
+  const near = st.near || 0, charge = st.charge || 0;
+  const b = Math.sin(t * 2.4);
+  const torsoDy = b > 0.2 ? -1 : 0;
+  const headDy = (Math.sin(t * 2.4 - 0.9) > 0.2 ? -1 : 0) - (near > 0 ? 1 : 0);
+  const headDx = near > 0 ? (Math.sin(t * 32) > 0 ? 1 : 0) : 0;
+  const armDy = Math.sin(t * 2.4 + 0.7) > 0.3 ? -1 : 0;
+  const armDx = near > 0 ? 1 : 0;
+  const step = (t % 3.6) < 0.45 ? 1 : 0;
+  const flash = st.hurt > 0;
+  c.globalAlpha = 0.4; c.fillStyle = "#000"; c.fillRect(x + 3, y + 24, 14, 2); c.globalAlpha = 1;
+  const D = (sx, sy, sw, sh, dx, dy) => c.drawImage(img, sx, sy, sw, sh, x + sx + dx, y + sy + dy, sw, sh);
+  // piernas (cambio de apoyo cada pocos segundos)
+  D(0, 18, 20, 8, 0, 0);
+  if (step) { c.clearRect(x + 4, y + 18, 6, 8); D(4, 18, 6, 8, 0, 0); c.clearRect(x + 4, y + 18, 6, 1); D(4, 18, 6, 7, 0, -1); }
+  // torso y brazos
+  D(4, 10, 12, 8, step, torsoDy);
+  D(0, 10, 4, 8, -armDx, armDy);
+  D(16, 10, 4, 8, armDx, armDy);
+  if (torsoDy < 0) D(4, 17, 12, 1, step, 0);
+  // cabeza
+  D(0, 0, 20, 10, headDx, headDy + torsoDy * 0);
+  // ojos encendidos: laten y arden más al gruñir / cargar
+  c.globalAlpha = Math.min(1, 0.65 + 0.35 * Math.sin(t * 5) + near * 0.3 + charge * 0.4);
   c.fillStyle = pal.eye;
-  c.fillRect(x + 4, y + 5 + breathe, 2, 1);
-  c.fillRect(x + 12, y + 5 + breathe, 2, 1);
+  c.fillRect(x + 4 + headDx, y + 5 + headDy, 2, 1);
+  c.fillRect(x + 12 + headDx, y + 5 + headDy, 2, 1);
+  if (near > 0 || charge > 0) { c.globalAlpha *= 0.35; c.fillRect(x + 3 + headDx, y + 4 + headDy, 4, 3); c.fillRect(x + 11 + headDx, y + 4 + headDy, 4, 3); }
   c.globalAlpha = 1;
+  if (flash) {
+    c.globalAlpha = Math.min(0.9, st.hurt);
+    c.globalCompositeOperation = "lighter";
+    c.fillStyle = "#ffffff";
+    c.fillRect(x, y, 20, 26);
+    c.globalCompositeOperation = "source-over";
+    c.globalAlpha = 1;
+  }
 }
 
 /**

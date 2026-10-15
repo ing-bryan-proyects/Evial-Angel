@@ -13,6 +13,8 @@
  * definido para los reinos siguientes.
  */
 
+import { A1_WORDS, A2_WORDS } from "./Vocabulary.js";
+
 export const ENGLISH_LEVELS = Object.freeze(["A1", "A2", "B1", "B1+", "B2", "B2+", "C1"]);
 
 export const ENEMIES = Object.freeze({
@@ -21,15 +23,33 @@ export const ENEMIES = Object.freeze({
     id: "karr", name: "Karr", title: "El lobo original", nameEs: "Karr",
     type: "common", level: "A1", realm: 1, combat: "realtime",
     mechanic: "Vocabulario rápido: sustantivos simples en ventanas de 3 segundos. Suelta monedas.",
-    hp: 3, speed: 44, aggro: 110, bite: 6, window: 3.0, gold: [2, 4], lp: 6,
+    hp: 3, speed: 44, aggro: 110, bite: 6, window: 3.0, gold: [2, 4], lp: 6, element: "dark", windup: 0.5,
     pal: { body: "#3a3f52", shade: "#262a38", hi: "#5a6078", mane: "#2c3040", eye: "#ff3b3b", claw: "#d9d0e8" },
   },
   skoll: {
     id: "skoll", name: "Sköll", title: "Lobo de élite / cazador", nameEs: "Sköll",
     type: "common", level: "A1", realm: 1, combat: "realtime",
     mechanic: "Más rápido y resistente; ventana de 2,5 segundos. Suelta una gema.",
-    hp: 4, speed: 56, aggro: 140, bite: 8, window: 2.5, gold: [4, 7], lp: 10, gem: true,
+    hp: 4, speed: 56, aggro: 140, bite: 8, window: 2.5, gold: [4, 7], lp: 10, gem: true, element: "ice", windup: 0.42,
     pal: { body: "#dfe6ee", shade: "#a8b4c4", hi: "#ffffff", mane: "#8a6a48", eye: "#5ab8ff", claw: "#f0f0f0" },
+  },
+
+  karrAlpha: {
+    id: "karrAlpha", name: "Alpha Karr", title: "Alfa de la jauría", nameEs: "Karr Alfa", type: "boss", level: "A1", realm: 1, combat: "turns", spawn: "random",
+    mechanic: "Frases simples A1 por ordenar y completar.", hp: 110, atk: 14, lp: 55, gold: 30, aura: "#8a4dff", lv: 4, atlas: "karr", scenes: [], stageScale: 1.7, worldScale: 1.6,
+    pal: { fur: "#2a2f40", furHi: "#4a5068", furSh: "#161a28", skin: "#5a4a5a", eye: "#ff3b3b", claw: "#e8e0d0", cloth: "#2a2a30" },
+  },
+  skollQueen: {
+    id: "skollQueen", name: "Skoll Queen", title: "Reina de hielo", nameEs: "Reina Sköll", type: "boss", level: "A1", realm: 1, combat: "turns", spawn: "random",
+    mechanic: "Examen A1: todas las estructuras básicas.", hp: 140, atk: 16, lp: 70, gold: 45, aura: "#7ad8ff", lv: 6, atlas: "skoll", scenes: [], stageScale: 1.8, worldScale: 1.6,
+    pal: { fur: "#dfe6ee", furHi: "#ffffff", furSh: "#a8b4c4", skin: "#8aa0b4", eye: "#5ab8ff", claw: "#f0f0f0", cloth: "#4a5a70" },
+  },
+  ignis: {
+    id: "ignis", name: "Ignis", title: "Espíritu de fuego", nameEs: "Ignis",
+    type: "common", level: "A2", realm: 1, combat: "realtime",
+    mechanic: "Esbirro de Pyrus: un espíritu de fuego que se lanza como un cometa. Vocabulario A2.",
+    hp: 5, speed: 62, aggro: 150, bite: 10, window: 2.4, gold: [5, 9], lp: 14, gem: true, element: "fire", windup: 0.4,
+    pal: { body: "#2a2230", shade: "#161018", hi: "#4a3a50", mane: "#ff7a1e", eye: "#ffd070", claw: "#ffc24a" },
   },
 
   /* ---------------- A2 · Hombres lobo (jefes, por turnos) ---------------- */
@@ -37,14 +57,14 @@ export const ENEMIES = Object.freeze({
     id: "rufus", name: "Rufus", title: "Hombre lobo", nameEs: "Rufus",
     type: "boss", level: "A2", realm: 1, combat: "turns", spawn: "random",
     mechanic: "Estructura oracional: ordenar frases en present perfect para romper su guardia.",
-    hp: 120, atk: 16, lp: 70, gold: 40, aura: "#ff3b3b", lv: 6,
+    hp: 120, atk: 16, lp: 70, gold: 40, aura: "#ff3b3b", lv: 6, atlas: "rufus", scenes: ["rufus_roar", "rufus_quake"], stageScale: 1.0,
     pal: { fur: "#2e3038", furHi: "#4a4e5c", furSh: "#1a1b22", skin: "#6e5a5a", eye: "#ff2a2a", claw: "#e8e0d0", cloth: "#2a2a30" },
   },
   shela: {
     id: "shela", name: "Shela", title: "Mujer loba", nameEs: "Shela",
     type: "boss", level: "A2", realm: 1, combat: "turns", spawn: "random",
     mechanic: "Estructura oracional en present perfect; sus cadenas castigan los errores.",
-    hp: 110, atk: 18, lp: 70, gold: 40, aura: "#ff8a3a", lv: 6,
+    hp: 110, atk: 18, lp: 70, gold: 40, aura: "#ff8a3a", lv: 6, atlas: "shela", scenes: ["shela_whirl", "shela_fury"], stageScale: 1.0,
     pal: { fur: "#5a3a26", furHi: "#7e5638", furSh: "#3a2416", skin: "#8a6a50", eye: "#ffb03a", claw: "#e8e0d0", cloth: "#4a3020", chain: "#9a9aa8" },
   },
 
@@ -105,20 +125,8 @@ export function enemiesForRealm(realm) {
    BANCOS PEDAGÓGICOS
    ====================================================================== */
 
-/** Sustantivos A1 para los golpes en tiempo real: palabra en inglés → traducción. */
-export const WORD_BANK = Object.freeze({
-  A1: [
-    ["wolf", "lobo"], ["tree", "árbol"], ["moon", "luna"], ["stone", "piedra"], ["river", "río"],
-    ["fire", "fuego"], ["sword", "espada"], ["night", "noche"], ["light", "luz"], ["bird", "pájaro"],
-    ["house", "casa"], ["water", "agua"], ["bread", "pan"], ["star", "estrella"], ["door", "puerta"],
-    ["key", "llave"], ["book", "libro"], ["wing", "ala"], ["heart", "corazón"], ["road", "camino"],
-    ["forest", "bosque"], ["sky", "cielo"], ["hand", "mano"], ["eye", "ojo"], ["gold", "oro"],
-  ],
-  A2: [
-    ["shield", "escudo"], ["bridge", "puente"], ["castle", "castillo"], ["coin", "moneda"], ["shadow", "sombra"],
-    ["candle", "vela"], ["feather", "pluma"], ["mountain", "montaña"], ["storm", "tormenta"], ["hunter", "cazador"],
-  ],
-});
+/** Palabras para los golpes en tiempo real (A1: más de 480 palabras por temas; A2: repaso). */
+export const WORD_BANK = Object.freeze({ A1: A1_WORDS, A2: A2_WORDS });
 
 /**
  * Frases en present perfect para Rufus y Shela: hay que ordenar las palabras.

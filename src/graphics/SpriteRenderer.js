@@ -390,3 +390,196 @@ export class SpriteRenderer {
     }
   }
 }
+
+/* ======================================================================
+   ÁRBOL DE ESTADOS DE COMBATE E IMPACTO (juego principal, sprites 16×20)
+   ----------------------------------------------------------------------
+   FighterAnim es una máquina de estados que devuelve, cada frame, una *pose*
+   (desplazamientos por partes del cuerpo, balanceo de pelo y ropa, destello
+   blanco, tinte de carga…). El dibujado lo hace CharacterRig.drawRig().
+
+     idle     Respiración con retardo cabeza→pecho y parpadeo; pelo y ropa al viento.
+     guard    Postura de guardia dinámica (combat idle): bombeo rítmico, piernas abiertas,
+              puños arriba; pelo y ropa reaccionan al viento.
+     walk     Ciclo de 8 fotogramas con rebote del torso y pelo/ropa a contramarcha.
+     punch    Combo de 3 golpes (jab, cruzado, gancho): preparación → impacto → recuperación.
+     charge   Carga de habilidad: agachado, brazos arriba, tinte celestial parpadeante y aura.
+     release  Liberación de la Ráfaga Sagrada: brazos abiertos y destello.
+     hurt     Impacto/retroceso: destello BLANCO puro, inclinación hacia atrás; el
+              desplazamiento decelerado lo aplica el juego con easeOutCubic.
+     dash     Esquiva: inclinación hacia delante, zancada abierta.
+     die      Caída: rota 90° y se desvanece.
+   ====================================================================== */
+
+export const easeOutCubic = (t) => 1 - Math.pow(1 - Math.max(0, Math.min(1, t)), 3);
+export const FACING = Object.freeze({ right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] });
+
+const silCache = new WeakMap();
+/** Silueta de color plano (para destellos blancos). Cacheada por imagen y color. */
+export function silhouette(img, color = "#ffffff") {
+  let m = silCache.get(img);
+  if (!m) silCache.set(img, (m = new Map()));
+  let s = m.get(color);
+  if (!s) {
+    s = document.createElement("canvas");
+    s.width = img.width; s.height = img.height;
+    const c = s.getContext("2d");
+    c.drawImage(img, 0, 0);
+    c.globalCompositeOperation = "source-in";
+    c.fillStyle = color;
+    c.fillRect(0, 0, s.width, s.height);
+    m.set(color, s);
+  }
+  return s;
+}
+
+const WALK8 = [
+  // [piernas, rebote del torso]
+  ["halfA", 0], ["A", -1], ["halfA", 0], ["stand", 0], ["halfB", 0], ["B", -1], ["halfB", 0], ["stand", 0],
+];
+
+export class FighterAnim {
+  constructor() {
+    this.clock = Math.random() * 10;
+    this.walkT = 0;
+    this.moving = false;
+    this.guard = false;
+    this.wind = 0;
+    this.speed = 1;
+    this.punchN = 0;       // golpe del combo (0..2)
+    this.punchT = 0;       // >0 mientras dura el golpe
+    this.comboAt = -9;
+    this.hurtT = 0;
+    this.dashT = 0;
+    this.charge = 0;       // 0 = sin cargar; >0 segundos cargando
+    this.releaseT = 0;
+    this.dieT = -1;
+    this.blinkT = 2 + Math.random() * 3;
+    this.blink = 0;
+    this.dir = "down";
+  }
+
+  /** @param {"punch"|"charge"|"release"|"cancel"|"hurt"|"dash"|"die"|"revive"} name */
+  trigger(name, d = {}) {
+    if (name === "punch") {
+      this.punchN = (this.clock - this.comboAt < 0.9) ? (this.punchN + 1) % 3 : 0;
+      this.comboAt = this.clock;
+      this.punchT = 0.26;
+    } else if (name === "charge") { this.charge = 0.0001; }
+    else if (name === "release") { this.charge = 0; this.releaseT = 0.3; }
+    else if (name === "cancel") { this.charge = 0; }
+    else if (name === "hurt") { this.hurtT = 0.42; this.charge = 0; this.punchT = 0; }
+    else if (name === "dash") { this.dashT = d.t ?? 0.2; }
+    else if (name === "die") { this.dieT = 0; }
+    else if (name === "revive") { this.dieT = -1; this.hurtT = 0; }
+  }
+
+  /** @param {{moving:boolean, speed?:number, guard?:boolean, wind?:number, dir?:string}} i */
+  update(dt, i) {
+    this.clock += dt;
+    this.moving = !!i.moving; this.guard = !!i.guard; this.wind = i.wind ?? 0; this.speed = i.speed ?? 1; this.dir = i.dir ?? this.dir;
+    if (this.moving) this.walkT += dt * (0.7 + 0.3 * this.speed); else this.walkT = 0;
+    this.punchT = Math.max(0, this.punchT - dt);
+    this.hurtT = Math.max(0, this.hurtT - dt);
+    this.dashT = Math.max(0, this.dashT - dt);
+    this.releaseT = Math.max(0, this.releaseT - dt);
+    if (this.charge > 0) this.charge += dt;
+    if (this.dieT >= 0) this.dieT += dt;
+    this.blinkT -= dt;
+    if (this.blinkT <= 0) { this.blink = 0.12; this.blinkT = 2.2 + Math.random() * 3.4; }
+    this.blink = Math.max(0, this.blink - dt);
+  }
+
+  get stateName() {
+    if (this.dieT >= 0) return "die";
+    if (this.hurtT > 0) return "hurt";
+    if (this.releaseT > 0) return "release";
+    if (this.charge > 0) return "charge";
+    if (this.punchT > 0) return "punch";
+    if (this.dashT > 0) return "dash";
+    if (this.moving) return "walk";
+    if (this.guard) return "guard";
+    return "idle";
+  }
+
+  /** Pose para el frame actual. */
+  pose() {
+    const dir = this.dir, [fx, fy] = FACING[dir];
+    const st = this.stateName;
+    const p = {
+      state: st, legs: "stand", legsDy: 0, legsDx: 0, torsoDy: 0, torsoDx: 0, headDy: 0, headDx: 0, bodyDx: 0, bodyDy: 0,
+      hair: 0, cloth: 0, flash: 0, tint: null, arms: null, rot: 0, alpha: 1, aura: 0, blink: this.blink > 0,
+    };
+    const c = this.clock;
+    // Viento: el pelo y la ropa siguen la brisa; al caminar se arrastran hacia atrás
+    const w = this.wind;
+    let hair = w > 0.55 ? 1 : w < -0.55 ? -1 : 0;
+    let cloth = w + Math.sin(c * 2.2 + 1.2) * 0.35 > 0.6 ? 1 : w + Math.sin(c * 2.2 + 1.2) * 0.35 < -0.6 ? -1 : 0;
+    if (this.moving || st === "dash") {
+      hair = fx !== 0 ? -fx : (Math.sin(c * 9) > 0.2 ? 1 : 0);
+      cloth = fx !== 0 ? -fx : 0;
+    }
+    p.hair = hair; p.cloth = cloth;
+
+    if (st === "idle") {
+      const b = Math.sin(c * 2.1);
+      p.torsoDy = b > 0.45 ? -1 : 0;
+      p.headDy = Math.sin(c * 2.1 - 0.9) > 0.5 ? -1 : 0;
+    } else if (st === "guard") {
+      const s = Math.sin(c * 8.4);
+      p.legs = s > 0 ? "wideA" : "wideB";
+      p.torsoDy = s > 0.2 ? 1 : 0;
+      p.headDy = s > 0.2 ? 1 : 0;
+      p.arms = { type: "guard" };
+    } else if (st === "walk") {
+      const idx = Math.floor(this.walkT * 11) % 8;
+      const [legs, bob] = WALK8[idx];
+      p.legs = legs; p.torsoDy = bob; p.headDy = bob && idx % 2 === 1 ? -1 : 0;
+      p.torsoDx = fx !== 0 ? (idx === 1 || idx === 5 ? fx : 0) : 0;
+    } else if (st === "punch") {
+      const k = 1 - this.punchT / 0.26;                 // 0..1
+      const phase = k < 0.2 ? "wind" : k < 0.55 ? "strike" : "recover";
+      p.arms = { type: "punch", n: this.punchN, phase, side: this.punchN % 2 };
+      p.legs = "wideA";
+      p.bodyDx = Math.round(fx * (phase === "strike" ? 2 : phase === "wind" ? -1 : 1));
+      p.bodyDy = Math.round(fy * (phase === "strike" ? 2 : phase === "wind" ? -1 : 1)) - (this.punchN === 2 && phase === "strike" ? 1 : 0);
+      p.torsoDx = Math.round(fx * (phase === "strike" ? 1 : 0));
+      p.headDx = Math.round(fx * (phase === "strike" ? 1 : 0));
+      p.torsoDy = phase === "wind" ? 1 : 0;
+    } else if (st === "charge") {
+      const s = Math.sin(c * 26);
+      p.torsoDy = 1; p.headDy = 1; p.legs = "wideA";
+      p.arms = { type: "raised" };
+      p.bodyDx = s > 0.85 ? 1 : s < -0.85 ? -1 : 0;
+      const pulse = 0.2 + 0.2 * (Math.sin(c * 18) * 0.5 + 0.5);
+      p.tint = { color: "#fff3c0", alpha: Math.min(0.55, pulse + this.charge * 0.25) };
+      p.aura = Math.min(1, this.charge / 0.5);
+    } else if (st === "release") {
+      const k = 1 - this.releaseT / 0.3;
+      p.arms = { type: "spread" };
+      p.bodyDy = k < 0.5 ? -2 : -1;
+      p.legs = "wideB";
+      p.tint = { color: "#ffffff", alpha: 0.6 * (1 - k) };
+      p.aura = 1 - k;
+    } else if (st === "hurt") {
+      const k = 1 - this.hurtT / 0.42;
+      p.flash = k < 0.14 ? 1 : Math.max(0, 1 - (k - 0.14) / 0.2) * 0.7;          // blanco puro al principio, luego se desvanece
+      p.torsoDx = -fx; p.headDx = -fx * 2; p.headDy = k < 0.5 ? -1 : 0;
+      p.arms = { type: "flail" };
+      p.legs = "wideA";
+      p.blink = true;
+    } else if (st === "dash") {
+      p.torsoDx = fx; p.headDx = fx * 2; p.headDy = fy > 0 ? 1 : 0; p.torsoDy = fy > 0 ? 1 : 0;
+      p.legs = Math.floor(c * 30) % 2 ? "wideA" : "wideB";
+      p.bodyDx = fx; p.bodyDy = fy;
+      p.arms = { type: "back" };
+    } else if (st === "die") {
+      const k = Math.min(1, this.dieT / 0.5);
+      p.rot = -Math.PI / 2 * easeOutCubic(k) * (fx >= 0 ? 1 : -1);
+      p.alpha = this.dieT < 0.7 ? 1 : Math.max(0, 1 - (this.dieT - 0.7) / 0.35);
+      p.flash = Math.sin(this.dieT * 40) > 0.4 ? 0.5 : 0;
+      p.blink = true; p.arms = { type: "flail" };
+    }
+    return p;
+  }
+}
