@@ -1984,7 +1984,9 @@
     import { runSpeakCard, SPEAK_CSS } from "./src/ui/SpeakCard.js";
     import { IntroCinematic, INTRO_CSS } from "./src/ui/IntroCinematic.js";
     import { drawWings } from "./src/graphics/Wings.js";
-    import { loadGround } from "./src/world/ArtProps.js";
+    import { CharMotion } from "./src/graphics/CharMotion.js";
+    import { allKitAtlases, allGroundSheets } from "./src/world/Kits.js";
+    import { loadGroundSheets } from "./src/world/GroundKit.js";
     import { SUBLEVELS, SUB_BY_ID, nextSub, CEFR, syllabus, combatQuestion, strikeChallenge, shrinePhrase } from "./src/data/Curriculum.js";
     import { playScene } from "./src/combat/Scenes.js";
     import { Progression, SPECIALS, STATS, RACES, allyName, specialCap, upgradeCost, xpToNext } from "./src/rpg/Progression.js";
@@ -1992,8 +1994,10 @@
     document.head.appendChild(Object.assign(document.createElement("style"), { textContent: SPEAK_CSS }));
     // Sprites de personajes y enemigos (hojas recortadas con tools/slice_sheets.py)
     await preloadAtlases(["abel", "aria", "benny", "mileva", "chloe", "arc", "karr", "skoll", "rufus", "shela", "pyrus", "ignis",
-      "abel_sp", "aria_sp", "benny_sp", "mileva_sp", "chloe_sp", "arc_sp", "rufus_sp", "shela_sp", "pyrus_sp", "autumn"]);
-    await loadGround().catch(() => {});                       // texturas de suelo de la hoja otoñal
+      "abel_sp", "aria_sp", "benny_sp", "mileva_sp", "chloe_sp", "arc_sp", "rufus_sp", "shela_sp", "pyrus_sp", "autumn",
+      "abel_idledir", "abel_rundir", "abel_dashdir", "abel_jumpdir"]);          // Abel en 8 direcciones — tools/slice_abel_dir.py
+    await preloadAtlases(allKitAtlases().filter((id) => id !== "autumn"));          // escenografía de las hojas de escenarios (sc35–sc53)
+    await loadGroundSheets(allGroundSheets());                                       // baldosas de suelo de cada bioma
 
     (() => {
       const $ = (id) => document.getElementById(id);
@@ -2433,6 +2437,14 @@
       });
       const abelAnim = new FighterAnim();
       const abelActor = new AtlasActor(ATLAS.abel, 10);
+      const abelMot = new CharMotion(ATLAS.abel, {
+        stride: 52, runStride: 78,                                                   // reposo suave, caminar sin patinar, nadar y volar
+        // cada hoja en su propio momento: reposo / caminar y correr (8 vistas) / esquiva / salto (Space); nado y vuelo con hojas propias.
+        // Aún no hay hoja de caminar en 8 vistas: andar usa los fotogramas de correr (cadencia lenta) hasta que llegue.
+        dirAtlases: { idle: ATLAS.abel_idledir, walk: ATLAS.abel_rundir, run: ATLAS.abel_rundir, dash: ATLAS.abel_dashdir, jump: ATLAS.abel_jumpdir },
+        extra: { swim: ATLAS.abel, fly: { atlas: ATLAS.abel_sp, anim: "fly", frames: [2, 4, 5, 7] } },
+      });
+      const abelPrev = { x: 0, y: 0, init: false };
       /** Elige animación y fotograma del atlas de Abel según su estado de combate. */
       function abelFrame(pose, t) {
         const A = ATLAS.abel;
@@ -4644,16 +4656,21 @@
         WILD_BOSS_LINES.skollQueen = [{ who: "abel", name: "ABEL", en: "The queen of the pack. Her fur is ice. Here we go!", es: "La reina de la manada. Su pelaje es hielo. ¡Allá vamos!" }];
 
         const BIOME_SCATTER = {
-          hollow: { pine: 0.17, oak: 0.1, dead: 0.1, rock: 0.1, tomb: 0.09, pillar: 0.08, rubble: 0.08, bigrubble: 0.05, crate: 0.02, barrel: 0.02, fence: 0.02, log: 0.03, stump: 0.03, wall: 0.06, fallen: 0.05, statue: 0.03 },
-          marsh: { pine: 0.12, oak: 0.2, dead: 0.07, rock: 0.08, tomb: 0.02, pillar: 0.02, rubble: 0.1, bigrubble: 0.06, crate: 0.06, barrel: 0.05, fence: 0.07, log: 0.05, stump: 0.03, wall: 0.05, fallen: 0.01, statue: 0.01 },
-          peaks: { pine: 0.26, oak: 0.04, dead: 0.14, rock: 0.2, tomb: 0.02, pillar: 0.02, rubble: 0.08, bigrubble: 0.04, crate: 0.02, barrel: 0.01, fence: 0.01, log: 0.03, stump: 0.02, wall: 0.03, fallen: 0.02, statue: 0.01 },
-          amber: { pine: 0.04, oak: 0.11, dead: 0.08, rock: 0.1, crag: 0.045, plant: 0.62, tomb: 0.01, pillar: 0.015, rubble: 0.04, bigrubble: 0.03, crate: 0.035, barrel: 0.03, fence: 0.04, log: 0.05, stump: 0.02, wall: 0.025, fallen: 0.01, statue: 0.008 },
-          sanctum: { pillar: 0.28, tomb: 0.12, wall: 0.14, statue: 0.05, fallen: 0.1, rubble: 0.1, bigrubble: 0.06, dead: 0.08, pine: 0.07 },
+          // Los tipos que el kit del bioma no cubre con arte se descartan solos (WorldBuilder + Kits).
+          forest: { oak: 0.30, pine: 0.12, dead: 0.04, rock: 0.04, crag: 0.03, log: 0.05, stump: 0.04, plant: 0.3, mushroom: 0.06, wall: 0.025, pillar: 0.02, rubble: 0.03, bigrubble: 0.02, statue: 0.008, crate: 0.012, barrel: 0.01, cart: 0.006, fence: 0.012 },
+          hollow: { oak: 0.1, pine: 0.1, dead: 0.14, rock: 0.05, crag: 0.03, tomb: 0.2, pillar: 0.04, rubble: 0.05, bigrubble: 0.03, crate: 0.01, barrel: 0.01, fence: 0.06, log: 0.03, stump: 0.03, wall: 0.04, statue: 0.03, plant: 0.4, mushroom: 0.1 },
+          marsh: { oak: 0.16, pine: 0.07, dead: 0.14, rock: 0.04, crag: 0.03, tomb: 0.03, pillar: 0.02, rubble: 0.05, crate: 0.03, barrel: 0.03, log: 0.07, stump: 0.04, plant: 0.55, mushroom: 0.2, cart: 0.008 },
+          peaks: { pine: 0.24, oak: 0.06, dead: 0.07, rock: 0.12, crag: 0.1, log: 0.03, stump: 0.02, plant: 0.4, crystal: 0.025, statue: 0.01, pillar: 0.012, rubble: 0.02 },
+          amber: { oak: 0.16, pine: 0.06, dead: 0.09, rock: 0.09, crag: 0.045, plant: 0.62, log: 0.05, pillar: 0.012, rubble: 0.03, bigrubble: 0.02, crate: 0.03, barrel: 0.025, cart: 0.008, fence: 0.03, wall: 0.02, statue: 0.006 },
+          sanctum: { pillar: 0.26, wall: 0.16, statue: 0.05, crystal: 0.07, brazier: 0.04, plant: 0.28, dead: 0.07, rubble: 0.05 },
         };
         const BIOME_RIM = {
           peaks: (r) => (r < 0.7 ? "pine" : r < 0.88 ? "dead" : "oak"),
           sanctum: (r) => (r < 0.5 ? "pillar" : r < 0.8 ? "dead" : "pine"),
           amber: (r) => (r < 0.55 ? "oak" : r < 0.8 ? "dead" : "pine"),
+          hollow: (r) => (r < 0.45 ? "dead" : r < 0.75 ? "oak" : "pine"),
+          marsh: (r) => (r < 0.45 ? "oak" : r < 0.75 ? "dead" : "pine"),
+          forest: (r) => (r < 0.6 ? "oak" : r < 0.85 ? "pine" : "dead"),
         };
         const GOAL_LINES = {
           kills: (n) => [`Defeat ${n} wolves to break the seal.`, `Derrota a ${n} lobos para romper el sello.`],
@@ -4681,9 +4698,9 @@
           const def = {
             id: sub.id, name: sub.name, nameEs: sub.es, sub, pal: PAL[sub.biome],
             gen: { R: sub.R, start: sub.start || "rim", reverse: !!sub.reverse, lakes: sub.lakes, hills: sub.hills, houses: sub.houses },
-            stage: `WHISPERING FOREST · ${sub.id} · ${sub.name.toUpperCase()}`, darkness: sub.darkness,
+            stage: `WHISPERING FOREST · ${sub.id} · ${sub.name.toUpperCase()}`, darkness: sub.darkness == null ? undefined : Math.max(0.2, sub.darkness * 0.7),
             allies: sub.allies, shop: sub.shop != null ? { u: sub.shop, below: true } : null, arcU: sub.arcU,
-            torches: sub.torches, interior: sub.interior ?? (sub.biome === "amber" ? 330 : undefined), scatter: BIOME_SCATTER[sub.biome], rimMix: BIOME_RIM[sub.biome], art: sub.biome === "amber" ? "autumn" : null,
+            torches: sub.torches, interior: sub.interior ?? ({ forest: 420, hollow: 340, marsh: 360, peaks: 340, amber: 340, sanctum: 240 }[sub.biome] ?? 300), scatter: BIOME_SCATTER[sub.biome], rimMix: BIOME_RIM[sub.biome], art: sub.biome,
             wolves: sub.enemies, loot: { coins: sub.loot[0], relics: sub.loot[1] }, shrine: true, next: nextSub(sub.id), objective: null,
           };
           if (g.type === "kills") def.killGoal = g.n;
@@ -4766,13 +4783,51 @@
         }
 
 
+        /** Vida de los aliados: descansan, miran a su alrededor y pasean cerca de su sitio; con Abel cerca se detienen y lo miran. */
+        function updateAllies(dt) {
+          const pcx = player.x + 8, pcy = player.y + 18;
+          for (const a of m.allies) {
+            a.actor.update(dt);
+            const b = a.beh; if (!b) continue;
+            const dx = pcx - (a.x + 8), dy = pcy - (a.y + 18), d = Math.hypot(dx, dy);
+            let vx = 0, vy = 0;
+            b.t -= dt;
+            if (d < 90 || mode !== "explore") { b.state = "idle"; b.dest = null; b.t = Math.max(b.t, 0.6); if (d < 90) b.face = dx >= 0 ? 1 : -1; }
+            else if (b.state === "idle") {
+              if (b.t <= 0) {
+                if (Math.random() < 0.55) { const ang = Math.random() * 6.283, r = 16 + Math.random() * 34; b.dest = { x: a.home.x + Math.cos(ang) * r, y: a.home.y + Math.sin(ang) * r * 0.7 }; b.state = "walk"; b.t = 6; }
+                else { b.face = Math.random() < 0.5 ? 1 : -1; b.t = 1.5 + Math.random() * 3.5; }
+              }
+            } else {
+              const ddx = b.dest.x - a.x, ddy = b.dest.y - a.y, dd = Math.hypot(ddx, ddy);
+              if (dd < 3 || b.t <= 0) { b.state = "idle"; b.t = 2 + Math.random() * 5; b.dest = null; }
+              else { vx = (ddx / dd) * 20; vy = (ddy / dd) * 20; b.face = vx >= 0 ? 1 : -1; }
+            }
+            let mvx = 0, mvy = 0;
+            if (vx || vy) {
+              const boxAt = (x, y) => ({ x: x + 4, y: y + 16, w: 8, h: 4 });
+              const free = (x, y) => { const bx = boxAt(x, y); return !m.T.blockedBox(bx) && !m.boxesNear(bx).some((q) => overlap(bx, q) && q !== a.box) && !m.dynBoxes().some((q) => q !== a.box && overlap(bx, q)) && !overlap(bx, feet()); };
+              const nx = a.x + vx * dt, ny = a.y + vy * dt;
+              if (free(nx, a.y)) { mvx = nx - a.x; a.x = nx; }
+              if (free(a.x, ny)) { mvy = ny - a.y; a.y = ny; }
+              if (!mvx && !mvy) { b.state = "idle"; b.t = 1 + Math.random() * 2; b.dest = null; }
+              a.box.x = a.x + 4; a.box.y = a.y + 16;
+            }
+            b.vx = mvx / Math.max(dt, 1e-3); b.vy = mvy / Math.max(dt, 1e-3);
+            a.mot.update(dt, { vx: b.vx, vy: b.vy, face: b.face });
+          }
+        }
+
         /** Aliados: animación de reposo de su hoja de sprites; se giran hacia Abel y se animan más vivos cuando está cerca. */
         function drawAlly(a, t) {
           const px = Math.round(a.x + 8), py = Math.round(a.y + 19);
           g.globalAlpha = 0.35; R("#000", px - 6, py - 1, 12, 2); g.globalAlpha = 1;
           const near = Math.hypot(a.x + 8 - (player.x + 8), a.y + 10 - (player.y + 10)) < 62;
           a.actor.speed = near ? 1.5 : 1;
-          a.actor.draw(g, px, py, { flip: player.x + 8 < a.x + 8 });
+          const walking = a.beh && a.beh.state === "walk" && (a.beh.vx || a.beh.vy);
+          const faceLeft = near || !a.beh ? player.x + 8 < a.x + 8 : a.beh.face < 0;      // cerca de Abel lo mira; si no, mira hacia donde va / donde mire
+          if (walking) a.mot.draw(g, px, py, { flip: a.beh.face < 0 });
+          else a.actor.draw(g, px, py, { flip: faceLeft });
           if (near) {                                           // brillo de saludo sobre la cabeza
             g.globalAlpha = 0.6 + Math.sin(t * 6) * 0.3;
             R("#fbe7a1", px - 1, py - 40 + Math.round(Math.sin(t * 5)), 2, 2);
@@ -5130,8 +5185,12 @@
           // Partidas de antes de los mapas circulares: se conserva el progreso pero se reinicia en el claro
           const legacy = (data.version || 1) < 2 || !MAPS[data.map];
           if (legacy) { world.defeated = {}; world.taken = {}; world.seeds = {}; world.destroyed = {}; }
+          // Partidas de antes de los mapas rectangulares (v<3): el mapa de cada semilla cambió de forma → se conserva el progreso
+          // (nivel, objetos, jefes) pero no la posición ni los objetos rotos/recogidos, que ya no coinciden.
+          const oldLayout = !legacy && (data.version || 1) < 3;
+          if (oldLayout) { world.taken = {}; world.destroyed = {}; world.seeds = {}; }
           loadMap(legacy ? "1.1" : data.map);
-          if (!legacy && m.isFree(data.x + 8, data.y + 18, 4)) { player.x = data.x; player.y = data.y; }
+          if (!legacy && !oldLayout && m.isFree(data.x + 8, data.y + 18, 4)) { player.x = data.x; player.y = data.y; }
           snapCam();
           updateStats();
           mode = "explore";
@@ -5202,6 +5261,188 @@
           if (!m.shop) return false;
           const f = feet();
           return Math.hypot(f.x + f.w / 2 - (m.shop.x + 18), f.y + f.h / 2 - (m.shop.y + 32)) < 26;
+        }
+        /** Puerta de una casa cercana (centro de su umbral). */
+        function houseDoorPos(h) {
+          const dx = h.sprite.door ? h.sprite.door.x + h.sprite.door.w / 2 : h.w / 2;
+          return { x: h.x + dx, y: h.y + h.h - 2 };
+        }
+        function nearHouseDoor() {
+          const f = feet();
+          for (const h of m.houses) {
+            const d = houseDoorPos(h);
+            if (Math.hypot(f.x + f.w / 2 - d.x, f.y + f.h - d.y) < 16) return h;
+          }
+          return null;
+        }
+
+        /* =====================================================
+           INTERIOR DE LAS CASAS: una habitación sencilla y practicable
+           ===================================================== */
+        const INT_W = 228, INT_H = 150, INT_DOOR_W = 26, INT_TOP = 40;
+        const interiorSt = { house: null, ox: 0, oy: 0, idx: 0, layout: null, chestMsg: 0, chestText: "" };
+        const intPlayer = { x: INT_W / 2, y: INT_H - 30, dir: "up" };
+        /** Distribución de muebles de una casa (determinista a partir de su posición): cada casa se ve distinta. */
+        function interiorLayout(h) {
+          const k = ((Math.abs(h.x) * 7 + Math.abs(h.y) * 13) >> 3) % 3;
+          const flip = k === 1;                                                                      // cama a la derecha / a la izquierda
+          const X = (x, w) => (flip ? INT_W - x - w : x);
+          const items = [
+            { t: "bed", x: X(18, 50), y: 52, w: 50, h: 26 },
+            { t: "shelf", x: X(86, 62), y: 30, w: 62, h: 12, wall: true },
+            { t: "hearth", x: X(INT_W - 70, 44), y: 30, w: 44, h: 18, wall: true },
+            { t: "table", x: X(120, 44), y: 86, w: 44, h: 18 },
+            { t: "stool", x: X(112, 10), y: 104, w: 10, h: 8 },
+            { t: "stool", x: X(168, 10), y: 104, w: 10, h: 8 },
+            { t: "chest", x: X(18, 24), y: 96, w: 24, h: 14, chest: true },
+            { t: "barrel", x: X(INT_W - 40, 14), y: 112, w: 14, h: 12 },
+            { t: "crate", x: X(INT_W - 56, 14), y: 118, w: 14, h: 12 },
+          ];
+          if (k === 2) items.push({ t: "cupboard", x: X(INT_W - 108, 26), y: 30, w: 26, h: 14, wall: true });
+          return { items, flip, k };
+        }
+        function enterHouse(h) {
+          interiorSt.house = h; interiorSt.ox = player.x; interiorSt.oy = player.y; interiorSt.idx = m.houses.indexOf(h);
+          interiorSt.layout = interiorLayout(h); interiorSt.chestMsg = 0;
+          const taken = world.taken[m.id] || {};
+          for (const it of interiorSt.layout.items) if (it.chest && taken[`${m.id}:chest${interiorSt.idx}`]) it.open = true;
+          intPlayer.x = INT_W / 2; intPlayer.y = INT_H - 34; intPlayer.dir = "up";
+          mode = "interior";
+          sfx.open?.();
+        }
+        function exitHouse() {
+          mode = "explore";
+          player.x = interiorSt.ox; player.y = interiorSt.oy;
+          player.dir = "down"; player.face = "down";
+          snapCam();
+          sfx.open?.();
+        }
+        const intFeetBox = (x, y) => ({ x: x - 5, y: y - 3, w: 10, h: 4 });
+        const intBlocked = (box) => interiorSt.layout.items.some((it) => overlap(box, it.wall ? { x: it.x, y: it.y - 4, w: it.w, h: it.h + 4 } : { x: it.x, y: it.y, w: it.w, h: it.h }));
+        function nearChest() {
+          const c = interiorSt.layout.items.find((it) => it.chest);
+          if (!c) return null;
+          return Math.hypot(intPlayer.x - (c.x + c.w / 2), intPlayer.y + 18 - (c.y + c.h + 4)) < 20 ? c : null;
+        }
+        /** Un paso de simulación dentro de la casa: movimiento con paredes y muebles propios, sin el resto del mundo. */
+        function updateInterior(dt, t) {
+          wind.update(t);
+          interiorSt.chestMsg = Math.max(0, interiorSt.chestMsg - dt);
+          const ax = controls.axis();
+          const dx = ax.x, dy = ax.y, moving = !!(dx || dy);
+          if (moving) {
+            const SPD = 66 * ax.mag;
+            const inDoor = (x) => Math.abs(x - INT_W / 2) < INT_DOOR_W / 2 - 4;
+            const minFeetY = INT_TOP + 6, maxFeetY = INT_H + 10;
+            let fx = intPlayer.x, fy = intPlayer.y + 18;
+            const tryX = fx + dx * SPD * dt, tryFY = fy + dy * SPD * dt;
+            if (tryX > 20 && tryX < INT_W - 20 && !intBlocked(intFeetBox(tryX, fy)) && (fy < INT_H - 8 || inDoor(tryX))) fx = tryX;
+            if (tryFY > minFeetY && (tryFY < INT_H - 6 || (inDoor(fx) && tryFY < maxFeetY)) && !intBlocked(intFeetBox(fx, tryFY))) fy = tryFY;
+            intPlayer.x = fx; intPlayer.y = fy - 18;
+            intPlayer.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+            player.dir = intPlayer.dir; player.face = intPlayer.dir === "left" || intPlayer.dir === "right" ? intPlayer.dir : player.face;
+          }
+          player.moving = moving;
+          abelAnim.update(dt, { moving, guard: false, wind: 0, dir: intPlayer.dir });
+          const vmap = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+          const [vdx, vdy] = moving ? [dx, dy] : vmap[intPlayer.dir] || [0, 1];
+          abelMot.update(dt, { vx: moving ? vdx * 60 : 0, vy: moving ? vdy * 60 : 0, face: intPlayer.dir === "left" ? -1 : 1 });
+          // salir: cruzar la puerta o pulsar interactuar junto a ella
+          const atDoor = Math.abs(intPlayer.x - INT_W / 2) < INT_DOOR_W / 2;
+          if (atDoor && intPlayer.y + 18 > INT_H - 2 && (dy > 0 || controls.pressed("interact"))) { exitHouse(); return; }
+          if (controls.pressed("interact")) {
+            const ch = nearChest();
+            if (ch) {
+              const key = `${m.id}:chest${interiorSt.idx}`;
+              const taken = (world.taken[m.id] ||= {});
+              if (!ch.open && !taken[key]) { ch.open = true; taken[key] = true; const gold = 6 + ((interiorSt.idx * 5) % 9); stats.gold += gold; sfx.coin(); updateStats(); interiorSt.chestMsg = 1.8; interiorSt.chestText = `+${gold} ◆`; }
+              else { interiorSt.chestMsg = 1.2; interiorSt.chestText = "EMPTY · VACÍO"; }
+            }
+          }
+          if (controls.pressed("menu")) openMenu();
+        }
+        /** Dibuja la habitación: suelo de madera, paredes, muebles con colisión, chimenea con luz y la puerta. */
+        function renderInterior(t) {
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          g.fillStyle = "#05030a"; g.fillRect(0, 0, canvas.width, canvas.height);
+          const z = Math.max(1, Math.floor(Math.min(canvas.width / (INT_W + 24), canvas.height / (INT_H + 28))));
+          const ox = Math.round((canvas.width - INT_W * z) / 2), oy = Math.round((canvas.height - INT_H * z) / 2);
+          g.setTransform(z, 0, 0, z, ox, oy);
+          g.imageSmoothingEnabled = false;
+          const Rr = (c, x, y, w, h) => { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h)); };
+          const lay = interiorSt.layout;
+          // suelo de tablas con vetas y juntas
+          for (let y = 0; y < INT_H; y += 8) Rr((y / 8) % 2 ? "#5a3e28" : "#4a3220", 0, y, INT_W, 8);
+          for (let y = 0; y < INT_H; y += 8) for (let x = ((y / 8) % 3) * 21 + 6; x < INT_W; x += 64) Rr("rgba(0,0,0,0.16)", x, y, 1, 8);
+          for (let i = 0; i < 46; i++) Rr("rgba(0,0,0,0.09)", (i * 37) % INT_W, (i * 53) % INT_H, 2, 1);
+          // alfombra
+          Rr("#6a2a2a", INT_W / 2 - 38, 82, 76, 40); Rr("#4a1c1c", INT_W / 2 - 38, 82, 76, 2); Rr("#c9a24a", INT_W / 2 - 34, 86, 68, 1); Rr("#c9a24a", INT_W / 2 - 34, 118, 68, 1);
+          // haz de luz de la ventana sobre el suelo
+          g.globalAlpha = 0.10 + 0.03 * Math.sin(t * 0.7); Rr("#cfe6ff", INT_W / 2 - 74, 56, 22, 42); g.globalAlpha = 1;
+          // paredes: arriba (con ventanas), laterales y bajo con la puerta
+          Rr("#1a130c", 0, 0, INT_W, INT_TOP - 4); Rr("#2a1c12", 0, INT_TOP - 8, INT_W, 4); Rr("#3a2818", 0, INT_TOP - 4, INT_W, 2);
+          for (const wx of [INT_W / 2 - 80, INT_W / 2 + 62]) { Rr("#1a2a3a", wx, 8, 22, 16); Rr("#355066", wx + 1, 9, 20, 14); Rr("#5a4028", wx + 10, 9, 2, 14); Rr("#5a4028", wx + 1, 15, 20, 2); }
+          Rr("#1a130c", 0, 0, 14, INT_H); Rr("#1a130c", INT_W - 14, 0, 14, INT_H);
+          Rr("#2a1c12", 0, INT_H - 14, INT_W, 14); Rr("#0a0712", INT_W / 2 - INT_DOOR_W / 2, INT_H - 15, INT_DOOR_W, 15);
+          g.strokeStyle = "#5a4028"; g.lineWidth = 1; g.strokeRect(INT_W / 2 - INT_DOOR_W / 2 - 0.5, INT_H - 15.5, INT_DOOR_W + 1, 15);
+          // muebles + Abel, ordenados por profundidad
+          const draws = lay.items.map((it) => ({ y: it.y + it.h, f: () => drawIntItem(it, t, Rr) }));
+          const afx = Math.round(intPlayer.x), afy = Math.round(intPlayer.y + 18);
+          draws.push({ y: afy, f: () => { g.globalAlpha = 0.3; Rr("#000", afx - 6, afy - 1, 12, 2); g.globalAlpha = 1; abelMot.draw(g, afx, afy, { flip: intPlayer.dir === "left" }); } });
+          draws.sort((p, q) => p.y - q.y).forEach((d) => d.f());
+          // luz cálida de la chimenea y viñeta
+          const hh = lay.items.find((it) => it.t === "hearth");
+          if (hh) {
+            const gx = hh.x + hh.w / 2, gy = hh.y + hh.h + 6, fl = 0.8 + 0.2 * Math.sin(t * 11) + 0.08 * Math.sin(t * 27);
+            const gr = g.createRadialGradient(gx, gy, 4, gx, gy, 92 * fl);
+            gr.addColorStop(0, "rgba(255,170,70,0.34)"); gr.addColorStop(1, "rgba(255,170,70,0)");
+            g.globalCompositeOperation = "lighter"; g.fillStyle = gr; g.fillRect(0, 0, INT_W, INT_H); g.globalCompositeOperation = "source-over";
+          }
+          const vg = g.createRadialGradient(INT_W / 2, INT_H / 2, 60, INT_W / 2, INT_H / 2, 150);
+          vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(1, "rgba(0,0,0,0.5)"); g.fillStyle = vg; g.fillRect(0, 0, INT_W, INT_H);
+          g.setTransform(1, 0, 0, 1, 0, 0);
+          const fs = Math.max(9, Math.round(9 * (canvas.width / 900)));
+          g.font = `${fs}px "Press Start 2P", monospace`; g.textAlign = "center"; g.fillStyle = "#fbe7a1";
+          const by = oy + INT_H * z + fs + 12;
+          if (interiorSt.chestMsg > 0) { g.fillStyle = "#ffe9a0"; g.fillText(interiorSt.chestText || "", canvas.width / 2, by); }
+          else if (nearChest()) { g.fillStyle = "#ffe9a0"; g.fillText(`${controls.label("interact")} · OPEN CHEST`, canvas.width / 2, by); }
+          else g.fillText(`${controls.label("interact")} · OPEN / EXIT  ·  WALK THROUGH THE DOOR TO LEAVE`, canvas.width / 2, by);
+        }
+        function drawIntItem(it, t, Rr) {
+          const { x, y, w, h } = it;
+          switch (it.t) {
+            case "bed":
+              Rr("#2a1c12", x - 1, y - 1, w + 2, h + 2); Rr("#3a2818", x, y, w, h);
+              Rr("#d8d0b8", x + 2, y + 2, 14, 9); Rr("#e8e0c8", x + 3, y + 3, 12, 3);
+              Rr("#9c3a3a", x + 2, y + 11, w - 4, h - 13); Rr("#b84a4a", x + 2, y + 11, w - 4, 3); Rr("#7a2a2a", x + 2, y + h - 4, w - 4, 2);
+              break;
+            case "shelf":
+              Rr("#2a1c12", x, y - 22, w, 34); Rr("#3a2818", x + 1, y - 21, w - 2, 32);
+              for (let r = 0; r < 3; r++) { Rr("#1a130c", x + 2, y - 20 + r * 11 + 9, w - 4, 2); for (let i = 0; i < 9; i++) Rr(["#8a3a3a", "#3a5a8a", "#c9a24a", "#4a7a4a", "#7a4a8a"][(i + r * 2) % 5], x + 3 + i * 6.5, y - 20 + r * 11 + 1, 5, 8); }
+              break;
+            case "hearth": {
+              Rr("#3a3a40", x - 2, y - 24, w + 4, h + 24); Rr("#4a4a54", x, y - 22, w, h + 22);
+              Rr("#1a1014", x + 8, y - 10, w - 16, h + 10); Rr("#2a2024", x + 8, y - 10, w - 16, 2);
+              const fl = Math.sin(t * 13) * 1.5;
+              Rr("#ff7a1e", x + 14, y - 1 + fl * 0.3, w - 28, 8); Rr("#ffc24a", x + 18, y - 4 + fl, w - 36, 7); Rr("#fff0a0", x + 21, y - 7 + fl, w - 42, 5);
+              Rr("#6a4a2a", x + 12, y + 8, w - 24, 3);
+              break;
+            }
+            case "table":
+              Rr("#2a1c12", x, y - 8, w, h + 8); Rr("#7a5a38", x + 1, y - 7, w - 2, h - 2); Rr("#9a7a52", x + 1, y - 7, w - 2, 3); Rr("#3a2818", x + 3, y + h - 6, 3, 8); Rr("#3a2818", x + w - 6, y + h - 6, 3, 8);
+              Rr("#e8e0c8", x + w - 14, y - 13, 5, 6); Rr("#ffe9a0", x + w - 13, y - 17 + Math.sin(t * 14), 3, 4);
+              Rr("#c9a24a", x + 8, y - 11, 8, 4); Rr("#8a3a3a", x + 20, y - 10, 7, 3);
+              break;
+            case "stool": Rr("#2a1c12", x, y - 3, w, h + 3); Rr("#8a6a42", x + 1, y - 2, w - 2, 4); Rr("#3a2818", x + 2, y + 2, 2, 6); Rr("#3a2818", x + w - 4, y + 2, 2, 6); break;
+            case "chest":
+              Rr("#2a1c12", x - 1, y - 9, w + 2, h + 9); Rr(it.open ? "#4a3220" : "#6a4a2a", x, y - 8, w, h + 6 - (it.open ? 6 : 0));
+              if (it.open) { Rr("#8a6a42", x, y - 16, w, 7); Rr("#c9a24a", x + 4, y - 6, w - 8, 4); } else { Rr("#8a6a42", x, y - 8, w, 5); Rr("#c9a24a", x + w / 2 - 2, y - 6, 4, 5); }
+              Rr("#1a130c", x, y + h - 4, w, 2);
+              break;
+            case "barrel": Rr("#2a1c12", x, y - 12, w, h + 12); Rr("#6a4a2a", x + 1, y - 11, w - 2, h + 10); Rr("#4a3220", x + 1, y - 7, w - 2, 1); Rr("#4a3220", x + 1, y, w - 2, 1); Rr("#8a6a42", x + 2, y - 11, w - 4, 2); break;
+            case "crate": Rr("#2a1c12", x, y - 10, w, h + 10); Rr("#7a5a38", x + 1, y - 9, w - 2, h + 8); Rr("#4a3220", x + 1, y - 9, w - 2, 1); Rr("#4a3220", x + w / 2, y - 9, 1, h + 8); Rr("#9a7a52", x + 1, y - 9, w - 2, 2); break;
+            case "cupboard": Rr("#2a1c12", x, y - 20, w, h + 20); Rr("#4a3220", x + 1, y - 19, w - 2, h + 18); Rr("#3a2818", x + 3, y - 16, w / 2 - 4, h + 12); Rr("#3a2818", x + w / 2 + 1, y - 16, w / 2 - 4, h + 12); Rr("#c9a24a", x + w / 2 - 2, y - 6, 1, 3); Rr("#c9a24a", x + w / 2 + 1, y - 6, 1, 3); break;
+          }
         }
         function nearShrine() {
           const f = feet();
@@ -5307,9 +5548,12 @@
             const shr = nearShrine();
             if (shr) { useShrine(shr); return; }
             if (nearShop()) { openShop(); return; }
+            const hd = nearHouseDoor();
+            if (hd) { enterHouse(hd); return; }
           }
           if (controls.pressed("punch")) startStrike("punch");
           if (controls.pressed("special")) startStrike("special");
+          if (controls.pressed("jump")) startJump();
         }
 
         /* ---------- Esquiva (dash) ---------- */
@@ -5317,6 +5561,22 @@
         const atmos = new AtmosphereTint();
         atmos.onChange = (on) => root.classList.toggle("boss-alert", on);
         const dashState = { t: 0, cd: 0, dx: 0, dy: 0, ghostT: 0, ghosts: [] };
+
+        /* ---------- Salto simple (hop): un pequeño brinco en la dirección hacia la que se mira ---------- */
+        const JUMP_DUR = 0.42, JUMP_DIST = 32;
+        const jumpSt = { t: 0, cd: 0, dx: 0, dy: 1 };
+        function startJump() {
+          if (jumpSt.t > 0 || jumpSt.cd > 0 || strike || mode !== "explore" || swim.in || fly.on || dashState.t > 0) return;
+          const ax = controls.axis();
+          let dx = ax.x, dy = ax.y;
+          if (!dx && !dy) { const f = { right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] }[player.dir]; dx = f[0]; dy = f[1]; }
+          const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+          jumpSt.t = JUMP_DUR; jumpSt.cd = JUMP_DUR + 0.12; jumpSt.dx = dx; jumpSt.dy = dy;
+          player.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
+          player2.inv = Math.max(player2.inv, 0.2);
+          sfx.dash?.();
+          ps.dust(player.x + 8, player.y + 18, 3);
+        }
         function startDash() {
           if (dashState.cd > 0 || strike || mode !== "explore") return;
           const ax = controls.axis();
@@ -5331,6 +5591,7 @@
         }
 
         function update(dt, t) {
+          if (mode === "interior") { updateInterior(dt, t); return; }
           player.moving = false;
           handleInput();
           if (mode === "explore" && controls.pressed("dash")) startDash();
@@ -5345,6 +5606,7 @@
 
           wind.update(t);
           dashState.cd = Math.max(0, dashState.cd - dt);
+          jumpSt.cd = Math.max(0, jumpSt.cd - dt);
           if (player.fallenT > 0) { player.fallenT -= dt; if (player.fallenT <= 0) respawn(); }
 
           // Retroceso decelerado (easeOut): el empujón decae exponencialmente
@@ -5358,7 +5620,14 @@
             const ax = controls.axis();
             let dx = ax.x, dy = ax.y;
 
-            if (dashState.t > 0) {                                // esquiva: ráfaga rápida con fantasmas
+            if (jumpSt.t > 0) {                                   // salto: brinco corto que ignora el roce del terreno
+              jumpSt.t -= dt;
+              const sp = (JUMP_DIST / JUMP_DUR) * dt;
+              player.x += jumpSt.dx * sp; player.y += jumpSt.dy * sp;
+              player.x = Math.max(40, Math.min(m.W - 56, player.x)); player.y = Math.max(40, Math.min(m.H - 60, player.y));
+              player.moving = true;
+              if (jumpSt.t <= 0) { ps.dust(player.x + 8, player.y + 18, 6); sfx.step?.(); m.grassField.trample(player.x + 8, player.y + 17, 7); }
+            } else if (dashState.t > 0) {                                // esquiva: ráfaga rápida con fantasmas
               dashState.t -= dt;
               dashState.ghostT -= dt;
               if (dashState.ghostT <= 0) { dashState.ghostT = 0.04; dashState.ghosts.push({ x: player.x, y: player.y, face: player.face, ix: Math.floor(performance.now() / 55) % ATLAS.abel.count("run"), life: 0.22 }); }
@@ -5370,13 +5639,13 @@
             } else if (fly.on && (dx || dy)) {                      // vuelo: atraviesa todo salvo el borde del mapa
               const sp = 128 * ax.mag * dt;
               player.x += dx * sp; player.y += dy * sp;
-              const rr = Math.hypot(player.x + 8 - m.cx, player.y + 18 - m.cy), lim = m.R - 48;
-              if (rr > lim) { player.x = m.cx + ((player.x + 8 - m.cx) / rr) * lim - 8; player.y = m.cy + ((player.y + 18 - m.cy) / rr) * lim - 18; }
+              player.x = Math.max(40, Math.min(m.W - 56, player.x)); player.y = Math.max(40, Math.min(m.H - 60, player.y));
               player.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "right" : "left") : (dy > 0 ? "down" : "up");
               player.moving = true;
               if (Math.random() < 0.5) ps.spawn(player.x + 8 + (Math.random() - 0.5) * 16, player.y + 14, 10, 0, 6, -10, 0.7, "#fff3c0", { additive: true, kind: 3 });
             } else if (dx || dy) {
-              const spd = swim.in ? SPEED * 0.62 : SPEED;
+              const running = controls.isDown("run") && !swim.in;
+              const spd = swim.in ? SPEED * 0.62 : running ? SPEED * 1.65 : SPEED;
               dx = dx * spd * ax.mag * dt;
               dy = dy * spd * ax.mag * dt;
               moveAxis(dx, 0);
@@ -5428,7 +5697,8 @@
             // Lobos: IA de persecución y mordisco al contacto
             const pc = { x: player.x + PLAYER_W / 2, y: player.y + PLAYER_H / 2 };
             for (const w of m.wolves) {
-              w.update(worldDt, pc, m.wolfBlocked);
+              w.update(worldDt, pc, m.wolfBlocked, m.wolves);
+              if (w.mot) w.mot.update(worldDt, { vx: w.avx || 0, vy: w.avy || 0, run: w.state === "chase", guard: w.state === "alert" || w.state === "recover", face: w.flip ? 1 : -1 });
               if (w.moving && m.grassField) m.grassField.trample(w.x + 10, w.y + 12, 6);
               if (!strike && w.alive && overlap(feet(), w.box()) && w.tryBite()) damagePlayer(w.def.bite, w);
             }
@@ -5485,13 +5755,24 @@
             const pc2 = { x: player.x + 8, y: player.y + 12 };
             const threat = !!strike || m.wolves.some((w) => w.alive && w.state !== "wander" && Math.hypot(w.x + 10 - pc2.x, w.y + 9 - pc2.y) < 110);
             abelAnim.update(dt, { moving: player.moving, guard: threat && mode === "explore", wind: wind.sway(player.x, player.y), dir: player.dir });
+            {                                                                 // velocidad real de Abel → ciclo de pasos / brazadas / vuelo / salto
+              const dxp = player.x - abelPrev.x, dyp = player.y - abelPrev.y, k = 1 / Math.max(dt, 1 / 120);
+              const teleported = !abelPrev.init || Math.abs(dxp) + Math.abs(dyp) > 28;
+              abelPrev.x = player.x; abelPrev.y = player.y; abelPrev.init = true;
+              abelMot.update(dt, {
+                vx: teleported ? 0 : dxp * k, vy: teleported ? 0 : dyp * k,
+                run: controls.isDown("run") && !swim.in && !fly.on && dashState.t <= 0 && jumpSt.t <= 0,
+                dashing: dashState.t > 0, jumping: jumpSt.t > 0, jumpFrac: jumpSt.t > 0 ? 1 - jumpSt.t / JUMP_DUR : 0,
+                swim: swim.in, fly: fly.on, guard: threat && mode === "explore", face: player.face === "left" ? -1 : 1,
+              });
+            }
             if (abelAnim.stateName === "charge" && Math.random() < dt * 45) {      // motas de luz que convergen hacia Abel
               const a = Math.random() * 6.28, c0 = Math.cos(a), s0 = Math.sin(a);
               ps.spawn(player.x + 8 + c0 * 24, player.y + 12 + s0 * 15, 5, -c0 * 52, -s0 * 33, 0, 0.45, Math.random() < 0.5 ? "#fff3c0" : "#ffffff", { additive: true, kind: KIND.SPARK });
             }
           }
 
-          for (const a of m.allies) a.actor.update(dt);
+          updateAllies(dt);
           m.arcActor.update(dt);
           m.bossActors.forEach((ba) => ba.update(dt));
           abelActor.update(dt);
@@ -5592,7 +5873,7 @@
           for (const h of m.houses) {
             if (h.x > cam.x + viewW + 10 || h.x + h.w < cam.x - 10 || h.y > cam.y + viewH + 10 || h.y + h.h < cam.y - 10) continue;
             items.push({ type: "houseBack", ref: h, by: h.y + h.sprite.backBase });
-            items.push({ type: "houseFront", ref: h, by: h.y + h.h });
+            if (h.sprite.front) items.push({ type: "houseFront", ref: h, by: h.y + h.h });
           }
           if (m.arc) items.push({ type: "arc", by: m.arc.y + 23 });
           for (const a of m.allies) items.push({ type: "ally", ref: a, by: a.y + PLAYER_H });
@@ -5605,32 +5886,41 @@
           for (const sg of m.sigils) items.push({ type: "sigil", ref: sg, by: sg.y - 30 });
           items.push({ type: "abel", by: player.y + PLAYER_H + (fly.on ? 500 : 0) });
           const abelPose = abelAnim.pose();
+          m.focus = { x: player.x + 8, y: player.y + 19 };                    // pies de Abel: árboles y casas se vuelven translúcidos si queda detrás
 
           ysort.flush((it) => {
             if (it.type === "abel") {
               const fx = Math.round(player.x + 8), fy0 = Math.round(player.y + 19);
-              const fy = fy0 - Math.round(fly.lift);
+              const jumpLift = jumpSt.t > 0 ? Math.sin((1 - jumpSt.t / JUMP_DUR) * Math.PI) * 11 : 0;   // arco del salto
+              const fy = fy0 - Math.round(fly.lift) - Math.round(jumpLift);
               const flyBob = fly.on ? Math.round(Math.sin(t * 6) * 1.5) : 0;
-              if (!swim.in) { g.globalAlpha = fly.on ? 0.22 : 0.35; const sw = fly.on ? 5 : 7; R("#000", fx - sw, fy0 - 1, sw * 2, 2); g.globalAlpha = 1; }
+              if (!swim.in) { g.globalAlpha = fly.on || jumpSt.t > 0 ? 0.22 : 0.35; const sw = fly.on || jumpSt.t > 0 ? 5 : 7; R("#000", fx - sw, fy0 - 1, sw * 2, 2); g.globalAlpha = 1; }
               if (fly.lift > 1) drawWings(g, fx, fy + flyBob - 23, Math.min(1, fly.lift / 12), 0.5 + 0.5 * Math.sin(t * 9), 30);
               // parpadea mientras es invulnerable tras un mordisco (no durante el destello de impacto ni la esquiva)
               const st0 = abelPose.state;
               const blinkInv = player2.inv > 0 && dashState.t <= 0 && st0 !== "hurt" && st0 !== "die" && ((t * 16) | 0) % 2;
               if (player.dir === "left" || player.dir === "right") player.face = player.dir;
               if (!blinkInv) {
-                const [an, ix] = abelFrame(abelPose, t);
-                const bob = st0 === "guard" && Math.sin(t * 8.4) > 0.2 ? 1 : 0;
-                if (swim.in) {                                                  // sumergido hasta la cintura: se recorta por debajo de la línea de agua
+                const locoSt = st0 === "walk" || st0 === "dash" || st0 === "guard" || st0 === "idle";     // locomoción: la lleva CharMotion
+                const flipA = player.face === "left";
+                const drawA = (yy, tint) => {
+                  if (locoSt) abelMot.draw(g, fx, yy, { flip: flipA, flash: abelPose.flash, tint: tint ?? abelPose.tint, alpha: abelPose.alpha, rot: abelPose.rot });
+                  else { const [an, ix] = abelFrame(abelPose, t); ATLAS.abel.draw(g, an, ix, fx, yy, { flip: flipA, flash: abelPose.flash, tint: tint ?? abelPose.tint, rot: abelPose.rot, alpha: abelPose.alpha }); }
+                };
+                if (swim.in && locoSt && ATLAS.abel.has("swim")) {              // hoja de nado propia: ya trae el agua y las brazadas dibujadas
+                  const bobW = Math.round(Math.sin(t * 4.2) * 0.8);
+                  drawA(fy + 2 + bobW, { color: "#4a9ec8", alpha: 0.12 });
+                } else if (swim.in) {                                           // sumergido hasta la cintura: se recorta por debajo de la línea de agua
                   const bobW = Math.round(Math.sin(t * 5) * 0.8);
                   g.save(); g.beginPath(); g.rect(fx - 24, fy - 60, 48, 60 + bobW - 7); g.clip();
-                  ATLAS.abel.draw(g, an, ix, fx, fy + 3 + bobW, { flip: player.face === "left", flash: abelPose.flash, tint: { color: "#4a9ec8", alpha: 0.22 }, alpha: abelPose.alpha });
+                  drawA(fy + 3 + bobW, { color: "#4a9ec8", alpha: 0.22 });
                   g.restore();
                   const ww = 9 + Math.sin(t * 4) * 1.2;
                   g.globalAlpha = 0.7; g.fillStyle = "#cfe8ff"; g.fillRect(fx - ww, fy - 4 + bobW, ww * 2, 1);
                   g.globalAlpha = 0.35; g.fillStyle = "#2c6a96"; g.fillRect(fx - ww + 2, fy - 3 + bobW, ww * 2 - 4, 2);
                   g.globalAlpha = 1;
                 } else {
-                  ATLAS.abel.draw(g, an, ix, fx + abelPose.bodyDx * 0, fy + bob + flyBob, { flip: player.face === "left", flash: abelPose.flash, tint: abelPose.tint, rot: abelPose.rot, alpha: abelPose.alpha });
+                  drawA(fy + flyBob);
                 }
               }
               if (fly.on) {                                                    // temporizador de las alas sobre su cabeza
@@ -5651,7 +5941,12 @@
             } else if (it.type === "decor") {
               drawDecor(g, it.ref, m, t);
             } else if (it.type === "houseBack") {
-              g.drawImage(it.ref.sprite.back, it.ref.x, it.ref.y);
+              const hh = it.ref;
+              const fo = m.focus, behind = fo.y < hh.y + hh.h - 14 && fo.y > hh.y && fo.x + 8 > hh.x && fo.x - 8 < hh.x + hh.w && fo.y - 36 < hh.y + hh.h;
+              hh.fade = (hh.fade || 0) + ((behind ? 1 : 0) - (hh.fade || 0)) * 0.16;
+              if (hh.fade > 0.02) g.globalAlpha = 1 - 0.55 * hh.fade;
+              g.drawImage(hh.sprite.back, hh.x, hh.y);
+              g.globalAlpha = 1;
             } else if (it.type === "houseFront") {
               g.drawImage(it.ref.sprite.front, it.ref.x, it.ref.y);
             } else if (it.type === "wolf") {
@@ -5864,7 +6159,7 @@
         /** Un paso fijo de simulación (1/60 s). */
         function step(dt, t) {
           update(dt, t);
-          touch.setSuspended(mode !== "explore" || controls.uiActive);
+          touch.setSuspended((mode !== "explore" && mode !== "interior") || controls.uiActive);
           touch.refresh();
           // Clima gótico: el entorno se tiñe de carmesí cuando Abel se acerca a un jefe
           let near = 0;
@@ -5878,6 +6173,7 @@
         /** Dibujado: una vez por frame del navegador. */
         function draw(t) {
           if (mode === "combat") return;                 // la pantalla de combate tapa el mapa
+          if (mode === "interior") { renderInterior(t); interactHint.classList.remove("show"); if (hudTimer <= 0) { hudTimer = 0.2; updateStats(); } return; }
           render(t);
           atmos.draw(g, canvas.width, canvas.height);
           placeOverlays();
@@ -5896,13 +6192,14 @@
           const al = mode === "explore" && !strike ? nearAlly() : null;
           const shr = mode === "explore" && !strike && !al ? nearShrine() : null;
           const sig = mode === "explore" && !strike && !al && !shr && !fly.on ? nearSigil() : null;
-          const show = mode === "explore" && !strike && (al || shr || sig || nearShop());
+          const hd = mode === "explore" && !strike && !al && !shr && !sig ? nearHouseDoor() : null;
+          const show = mode === "explore" && !strike && (al || shr || sig || hd || nearShop());
           interactHint.classList.toggle("show", !!show);
           if (show) {
-            const s = al ? toScreen(al.x + 8, al.y - 14) : shr ? toScreen(shr.bx, shr.by - 36) : sig ? toScreen(sig.x, sig.y - 30) : toScreen(m.shop.x + 18, m.shop.y - 2);
+            const s = al ? toScreen(al.x + 8, al.y - 14) : shr ? toScreen(shr.bx, shr.by - 36) : sig ? toScreen(sig.x, sig.y - 30) : hd ? toScreen(houseDoorPos(hd).x, houseDoorPos(hd).y - 18) : toScreen(m.shop.x + 18, m.shop.y - 2);
             interactHint.style.left = `${s.x}px`;
             interactHint.style.top = `${s.y}px`;
-            interactHint.textContent = al ? `${controls.label("interact")} · TALK · ${allyName(al.id).toUpperCase()}` : shr ? `${controls.label("interact")} · ${shr.used ? "SHRINE" : "SPEAK ENGLISH"}` : sig ? `${controls.label("interact")} · ${prog.level >= WING_LEVEL ? "SPREAD WINGS · ALAS" : "WINGS AT LV " + WING_LEVEL}` : `${controls.label("interact")} · SHOP`;
+            interactHint.textContent = al ? `${controls.label("interact")} · TALK · ${allyName(al.id).toUpperCase()}` : shr ? `${controls.label("interact")} · ${shr.used ? "SHRINE" : "SPEAK ENGLISH"}` : sig ? `${controls.label("interact")} · ${prog.level >= WING_LEVEL ? "SPREAD WINGS · ALAS" : "WINGS AT LV " + WING_LEVEL}` : hd ? `${controls.label("interact")} · ENTER · ENTRAR` : `${controls.label("interact")} · SHOP`;
           }
         }
 
@@ -5910,26 +6207,24 @@
         function drawWolfAtlas(w, t) {
           const A = ATLAS[w.def.id] || ATLAS.karr;
           if (!w.actor) w.actor = new AtlasActor(A, 10);
-          const ac = w.actor;
+          if (!w.mot) w.mot = new CharMotion(A, { stride: A.height * 1.55, runStride: A.height * 2.1, face: w.flip ? 1 : -1 });
           const fx = Math.round(w.x + 10), fy = Math.round(w.y + 13);
-          let anim = "idle", fps = 8, idx = null, flash = 0, rot = 0, alpha = 1;
+          let anim = "idle", idx = null, flash = 0, rot = 0, alpha = 1;
+          const loco = w.state === "wander" || w.state === "alert" || w.state === "chase" || w.state === "recover";
           switch (w.state) {
-            case "wander": anim = w.moving ? "walk" : "idle"; fps = w.moving ? 9 : 7; break;
-            case "alert": anim = "idle"; fps = 14; break;
-            case "chase": anim = "run"; fps = 14; break;
             case "windup": anim = "attack1"; idx = Math.min(1, Math.floor(w.charge * 2)); break;           // se agacha y carga
             case "lunge": { anim = "attack1"; const n = A.count("attack1"); idx = Math.min(n - 1, 2 + Math.floor((w.stateT / 0.24) * (n - 2))); break; }
-            case "recover": anim = "idle"; fps = 10; break;
             case "stunned": anim = "idle"; idx = 0; flash = Math.min(1, w.hurtT / 0.2); break;
             case "dying": anim = "idle"; idx = 0; rot = Math.min(1, w.dieT / 0.35) * 1.2 * (w.flip ? 1 : -1); alpha = Math.max(0, 1 - Math.max(0, w.dieT - 0.4) / 0.4); flash = w.dieT < 0.15 ? 1 : 0; break;
           }
-          if (idx === null) { ac.play(anim, { fps }); idx = ac.frameIndex(); }
-          g.globalAlpha = 0.35 * alpha; R("#000", fx - 10, fy - 1, 20, 2); g.globalAlpha = 1;
+          const ws = w.def.worldScale || 1;                                              // los lobos comunes son más grandes que Abel
+          g.globalAlpha = 0.35 * alpha; R("#000", Math.round(fx - 10 * ws), fy - 1, Math.round(20 * ws), 2); g.globalAlpha = 1;
           const k = w.charge;
           const tint = k > 0 ? { color: w.element === "fire" ? "#ff7a1e" : w.element === "ice" ? "#bfe8ff" : "#8a4dff", alpha: 0.25 + 0.35 * k * (0.6 + 0.4 * Math.sin(t * 40)) } : null;
-          A.draw(g, anim, idx, fx, fy, { flip: !w.flip, flash, tint, rot, alpha });
+          if (loco) w.mot.draw(g, fx, fy, { flip: !w.flip, flash, tint, alpha, scale: ws });
+          else A.draw(g, anim, idx ?? 0, fx, fy, { flip: !w.flip, flash, tint, rot, alpha, scale: ws });
           if (w.alive && w.hp < w.def.hp) {           // vida restante en puntos sobre la cabeza
-            for (let i = 0; i < w.def.hp; i++) R(i < w.hp ? "#ff4a5a" : "#3a1a22", fx - w.def.hp * 1.5 + i * 3, fy - A.height - 3, 2, 1);
+            for (let i = 0; i < w.def.hp; i++) R(i < w.hp ? "#ff4a5a" : "#3a1a22", fx - w.def.hp * 1.5 + i * 3, Math.round(fy - A.height * ws - 3), 2, 1);
           }
         }
 
@@ -5993,49 +6288,62 @@
           $("hud-xp-fill").style.width = (prog.level >= 40 ? 100 : (prog.xp / prog.xpNext) * 100) + "%";
         }
 
-        /** Mapa de ubicación circular: el suelo del mapa reducido + marcadores en tiempo real. */
+        /**
+         * Minimapa circular centrado en Abel: muestra el entorno cercano (radio ≈ 540 px de mundo) y,
+         * en el borde del círculo, flechas hacia lo importante que queda fuera de vista.
+         */
+        const MM_SC = 0.104;
         function buildMinimapBase() {
-          const S = minimap.width;
+          const w = Math.ceil(m.W * MM_SC), h = Math.ceil(m.H * MM_SC);
           const c = document.createElement("canvas");
-          c.width = S; c.height = S;
+          c.width = w; c.height = h;
           const x = c.getContext("2d");
           x.imageSmoothingEnabled = true;
           x.imageSmoothingQuality = "high";
-          x.save();
-          x.beginPath(); x.arc(S / 2, S / 2, S / 2 - 1, 0, Math.PI * 2); x.clip();
-          x.fillStyle = "#0a0712"; x.fillRect(0, 0, S, S);
-          x.drawImage(m.T.canvas, 0, 0, m.W, m.H, 0, 0, S, S);
+          x.fillStyle = "#0a0712"; x.fillRect(0, 0, w, h);
+          x.drawImage(m.T.canvas, 0, 0, m.W, m.H, 0, 0, w, h);
           x.fillStyle = "rgba(10, 30, 8, 0.8)";
-          const sc = S / m.W;
-          for (const o of m.obstacles) if (o.type === "pine" || o.type === "oak") x.fillRect(Math.round(o.bx * sc) - 1, Math.round(o.by * sc) - 1, 2, 2);
+          for (const o of m.obstacles) if (o.type === "pine" || o.type === "oak") x.fillRect(Math.round(o.bx * MM_SC) - 1, Math.round(o.by * MM_SC) - 1, 2, 2);
           x.fillStyle = "#8a8294";
-          for (const h of m.houses) x.fillRect(Math.round(h.x * sc), Math.round(h.y * sc), Math.max(2, Math.round(h.w * sc)), Math.max(2, Math.round(h.h * sc)));
-          x.restore();
-          x.strokeStyle = "#9c7416"; x.lineWidth = 1.5;
-          x.beginPath(); x.arc(S / 2, S / 2, S / 2 - 1, 0, Math.PI * 2); x.stroke();
+          for (const h0 of m.houses) x.fillRect(Math.round(h0.x * MM_SC), Math.round(h0.y * MM_SC), Math.max(2, Math.round(h0.w * MM_SC)), Math.max(2, Math.round(h0.h * MM_SC)));
           m.minimapBase = c;
         }
 
         function drawMinimap(t) {
-          const S = minimap.width, sc = S / m.W;
+          const S = minimap.width, C = S / 2, sc = MM_SC;
+          const px = player.x + 8, py = player.y + 16;
           mctx.imageSmoothingEnabled = false;
           mctx.clearRect(0, 0, S, S);
-          mctx.drawImage(m.minimapBase, 0, 0);
-          const dot = (wx, wy, col, size = 2) => { mctx.fillStyle = col; mctx.fillRect(Math.round(wx * sc) - (size >> 1), Math.round(wy * sc) - (size >> 1), size, size); };
+          mctx.save();
+          mctx.beginPath(); mctx.arc(C, C, C - 1, 0, Math.PI * 2); mctx.clip();
+          mctx.fillStyle = "#0a0712"; mctx.fillRect(0, 0, S, S);
+          mctx.drawImage(m.minimapBase, Math.round(C - px * sc), Math.round(C - py * sc));
+          const R0 = C - 4;
+          // marcador en coordenadas del minimapa; si cae fuera del círculo se pega al borde (flecha)
+          const dot = (wx, wy, col, size = 2, edge = false) => {
+            let dx = (wx - px) * sc, dy = (wy - py) * sc;
+            const d = Math.hypot(dx, dy);
+            if (d > R0) { if (!edge) return; dx = (dx / d) * R0; dy = (dy / d) * R0; size = Math.max(3, size - 1); }
+            mctx.fillStyle = col; mctx.fillRect(Math.round(C + dx) - (size >> 1), Math.round(C + dy) - (size >> 1), size, size);
+          };
           // Iconos dorados: tienda, jefes de zona y Unit-A.R.C.
-          if (m.shop) { dot(m.shop.x + 18, m.shop.y + 20, "#000", 6); dot(m.shop.x + 18, m.shop.y + 20, "#ffd86a", 4); }
-          for (const b of m.wildBosses) if (b.alive) { dot(b.x + 10, b.y + 20, "#000", 6); dot(b.x + 10, b.y + 20, ((t * 4) | 0) % 2 ? "#ffd86a" : "#ff4a4a", 4); }
-          if (m.boss && m.boss.alive) { dot(m.boss.x + 28, m.boss.y + 50, "#000", 6); dot(m.boss.x + 28, m.boss.y + 50, "#ffd86a", 4); }
-          if (m.arc) dot(m.arc.x + 8, m.arc.y + 20, "#ff9a3c", 3);
+          if (m.shop) { dot(m.shop.x + 18, m.shop.y + 20, "#000", 6); dot(m.shop.x + 18, m.shop.y + 20, "#ffd86a", 4, true); }
+          for (const b of m.wildBosses) if (b.alive) { dot(b.x + 10, b.y + 20, "#000", 6); dot(b.x + 10, b.y + 20, ((t * 4) | 0) % 2 ? "#ffd86a" : "#ff4a4a", 4, true); }
+          if (m.boss && m.boss.alive) { dot(m.boss.x + 28, m.boss.y + 50, "#000", 6); dot(m.boss.x + 28, m.boss.y + 50, "#ffd86a", 4, true); }
+          if (m.arc) dot(m.arc.x + 8, m.arc.y + 20, "#ff9a3c", 3, true);
           for (const it of m.loot) if (it.kind === "relic") dot(it.x, it.y, "#b8ffea", 2);
           for (const w of m.wolves) if (w.alive) dot(w.x + 10, w.y + 10, "#c8384a", 2);
-          if (m.gate) { const col = m.unlocked ? (((t * 4) | 0) % 2 ? "#d9b3ff" : "#ffffff") : "#7a3cff"; dot(m.gate.x, m.gate.y, "#000", 6); dot(m.gate.x, m.gate.y, col, 4); }
-          // Abel: punto blanco con borde dorado que parpadea
-          dot(player.x + 8, player.y + 16, "#e3b341", 4);
-          if (((t * 3) | 0) % 2) dot(player.x + 8, player.y + 16, "#ffffff", 2);
+          for (const sg of m.sigils) dot(sg.x, sg.y, "#ffe9a0", 2);
+          if (m.gate) { const col = m.unlocked ? (((t * 4) | 0) % 2 ? "#d9b3ff" : "#ffffff") : "#7a3cff"; dot(m.gate.x, m.gate.y, "#000", 6); dot(m.gate.x, m.gate.y, col, 4, true); }
+          // Abel (centro): punto dorado que parpadea
+          mctx.fillStyle = "#e3b341"; mctx.fillRect(C - 2, C - 2, 4, 4);
+          if (((t * 3) | 0) % 2) { mctx.fillStyle = "#ffffff"; mctx.fillRect(C - 1, C - 1, 2, 2); }
           // Marco de la vista actual
-          mctx.strokeStyle = "rgba(251,231,161,0.45)"; mctx.lineWidth = 1;
-          mctx.strokeRect(Math.round(cam.x * sc) + 0.5, Math.round(cam.y * sc) + 0.5, Math.round(viewW * sc), Math.round(viewH * sc));
+          mctx.strokeStyle = "rgba(251,231,161,0.4)"; mctx.lineWidth = 1;
+          mctx.strokeRect(Math.round(C + (cam.x - px) * sc) + 0.5, Math.round(C + (cam.y - py) * sc) + 0.5, Math.round(viewW * sc), Math.round(viewH * sc));
+          mctx.restore();
+          mctx.strokeStyle = "#9c7416"; mctx.lineWidth = 1.5;
+          mctx.beginPath(); mctx.arc(C, C, C - 1, 0, Math.PI * 2); mctx.stroke();
           hudCoords.textContent = `X ${Math.round(player.x)} · Y ${Math.round(player.y)}`;
         }
 
@@ -6368,7 +6676,12 @@
         const forcedSeed = params.get("seed") ? Number(params.get("seed")) >>> 0 : null;
 
         function initActors() {
-          for (const a of m.allies) a.actor = new AtlasActor(ATLAS[a.id], 8 + Math.random() * 2);
+          for (const a of m.allies) {
+            a.actor = new AtlasActor(ATLAS[a.id], 8 + Math.random() * 2);
+            a.home = { x: a.x, y: a.y };
+            a.mot = new CharMotion(ATLAS[a.id], { stride: ATLAS[a.id].height * 1.1, face: 1 });
+            a.beh = { state: "idle", t: 1 + Math.random() * 4, dest: null, face: 1, vx: 0, vy: 0 };
+          }
           m.arcActor = new AtlasActor(ATLAS.arc, 8);
           m.bossActors = m.wildBosses.map((b) => new AtlasActor(ATLAS[b.def.atlas || b.kind], 8));
         }
@@ -6465,12 +6778,12 @@
             bosses: m.wildBosses.map((b) => ({ kind: b.kind, x: b.x, y: b.y, alive: b.alive })),
             R: m.R, seed: m.seed, start: m.start, gate: m.gate && { x: m.gate.x, y: m.gate.y }, pathLen: Math.round(m.path.length),
             lakes: m.lakes.map((l) => ({ x: Math.round(l.cx), y: Math.round(l.cy), r: Math.round(l.r) })), hills: m.hills.map((h) => ({ x: Math.round(h.cx), y: Math.round(h.cy), tiers: h.tiers.length, stairs: h.tiers.map((t) => t.stair && { x: t.stair.x, y: t.stair.yb }) })),
-            houses: m.houses.map((h) => ({ x: h.x, y: h.y })), obstacles: m.obstacles.length, arc: m.arc && { x: m.arc.x, y: m.arc.y },
+            houses: m.houses.map((h) => ({ x: h.x, y: h.y, w: h.w, h: h.h })), obstacles: m.obstacles.length, arc: m.arc && { x: m.arc.x, y: m.arc.y },
             allies: m.allies.map((a) => ({ id: a.id, x: a.x, y: a.y })), ps: ps.n, crater: m.L.crater && { x: Math.round(m.L.crater.x), y: Math.round(m.L.crater.y) },
-            grass: m.grass.length, particles: ps.n,
+            grass: m.grass.length, particles: ps.n, scenes: m.scenes || [],
             sigils: m.sigils.map((q) => ({ x: q.x, y: q.y, why: q.why })), swimming: swim.in, flying: fly.on, flyT: +fly.t.toFixed(2), pearls: m.loot.filter((l) => l.water).length,
           }),
-          fly: () => startFly(), land: () => landFly(), reactor, battle: (k) => debugBattle(k), ob: (type, n = 0) => { const o = m.obstacles.filter((q) => q.type === type)[n]; return o && { id: o.id, type: o.type, x: o.bx, y: o.by, spr: o.spr, cut: !!o.cut, dmg: o.dmg || 0, moving: !!o.mv, v: o.mv ? [Math.round(o.mv.vx), Math.round(o.mv.vy)] : 0, fall: o.fall ? +o.fall.ang.toFixed(2) : 0, rot: +(o.rot || 0).toFixed(2), z: +(o.z || 0).toFixed(1), dead: !!o.dead }; }, types: () => { const c = {}; for (const o of m.obstacles) c[o.type] = (c[o.type] || 0) + 1; return c; }, near: () => ({ sig: !!nearSigil(), al: !!nearAlly(), shr: !!nearShrine(), shop: !!nearShop(), mode, strike: !!strike, fallen: player.fallenT }), water: (x, y) => m.T.waterAt(x | 0, y | 0),
+          fly: () => startFly(), land: () => landFly(), reactor, battle: (k) => debugBattle(k), ob: (type, n = 0, id = null) => { const o = id != null ? m.obstacles.find((q) => q.id === id) || { id, gone: true, type, bx: 0, by: 0 } : m.obstacles.filter((q) => q.type === type)[n]; return o && { id: o.id, gone: !!o.gone, squash: o.squash || 0, lying: !!o.lying, type: o.type, x: o.bx, y: o.by, spr: o.spr, cut: !!o.cut, dmg: o.dmg || 0, moving: !!o.mv, v: o.mv ? [Math.round(o.mv.vx), Math.round(o.mv.vy)] : 0, fall: o.fall ? +o.fall.ang.toFixed(2) : 0, rot: +(o.rot || 0).toFixed(2), z: +(o.z || 0).toFixed(1), dead: !!o.dead }; }, types: () => { const c = {}; for (const o of m.obstacles) c[o.type] = (c[o.type] || 0) + 1; return c; }, near: () => ({ sig: !!nearSigil(), al: !!nearAlly(), shr: !!nearShrine(), shop: !!nearShop(), mode, strike: !!strike, fallen: player.fallenT }), water: (x, y) => m.T.waterAt(x | 0, y | 0),
           sheet: () => {
             const dirs = ["down", "right", "up", "left"];
             const cols = [];
@@ -6492,6 +6805,18 @@
               abelRig.draw(tc, d, pose, 6, 5);
               c.drawImage(tmpc, ci * cw * S, r * ch * S, cw * S, ch * S);
             }));
+            return cv.toDataURL("image/png");
+          },
+          /** Vista general del mapa entero (suelo + obstáculos + casas) a escala s, para revisar la composición. */
+          overview: (s = 0.4) => {
+            const cv = document.createElement("canvas"); cv.width = Math.round(m.W * s); cv.height = Math.round(m.H * s);
+            const c = cv.getContext("2d"); c.imageSmoothingEnabled = true; c.scale(s, s);
+            c.drawImage(m.ground, 0, 0);
+            const items = [...m.obstacles.map((o) => ({ y: o.by, f: () => drawObstacle(c, o, m, 0) })), ...m.houses.map((h) => ({ y: h.y + h.h, f: () => c.drawImage(h.sprite.back, h.x, h.y) }))];
+            items.sort((a, b) => a.y - b.y); items.forEach((i) => i.f());
+            const dot = (x, y, col, r = 9) => { c.fillStyle = col; c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); };
+            dot(m.start.x, m.start.y, "#00ff66"); if (m.gate) dot(m.gate.x, m.gate.y, "#ff3355"); if (m.shop) dot(m.shop.x + 18, m.shop.y + 20, "#ffdd00");
+            for (const a of m.allies) dot(a.x + 8, a.y + 12, "#33bbff"); for (const w of m.wolves) dot(w.x, w.y, "#ff8800", 5);
             return cv.toDataURL("image/png");
           },
           teleport: (x, y) => { player.x = x; player.y = y; snapCam(); },
